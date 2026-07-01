@@ -9,7 +9,7 @@
   h1 { font-size:18px; font-weight:bold; background:var(--green-dk); color:#fff; margin:0 -24px 18px; padding:16px 24px; border-radius:12px 12px 0 0; }
   label { display:block; font-size:13px; font-weight:bold; margin:16px 0 6px; }
   .hint { font-size:11.5px; color:var(--mut); font-weight:normal; margin-left:6px; }
-  input[type=text], input[type=number], input[type=email] {
+  input[type=text], input[type=number], input[type=email], input[type=password] {
     width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; }
   .row { display:flex; gap:8px; margin-bottom:6px; align-items:center; }
   .row input { flex:1; }
@@ -86,11 +86,33 @@
   .okchip { display:inline-block; font-size:12px; padding:4px 10px; margin:0 5px 5px 0; background:#E6F2EA; border:1px solid var(--green); color:#0E4429; border-radius:14px; }
   .badchip { display:inline-block; font-size:12px; padding:4px 10px; margin:0 5px 5px 0; background:#f6efef; border:1px solid #d9b9b9; color:#793b3b; border-radius:14px; text-decoration:line-through; }
   .review { background:#FAEEDA; color:#633806; font-size:12.5px; padding:8px 11px; border-radius:8px; margin-top:8px; }
+  .tabs { display:flex; gap:6px; margin:0 0 16px; }
+  .tab { flex:1; padding:10px; font-size:14px; font-weight:bold; border:1px solid var(--bd); background:#fff; color:var(--mut); border-radius:8px; cursor:pointer; font-family:inherit; }
+  .tab.active { background:var(--green); color:#fff; border-color:var(--green); }
+  .slist { display:flex; flex-direction:column; gap:8px; }
+  .scard { border:1px solid var(--bd); border-radius:10px; padding:10px 12px; }
+  .scard .snm { font-size:14px; font-weight:bold; }
+  .smeta { font-size:12px; color:var(--mut); }
+  .scard .smeta { margin-top:3px; }
+  .sact { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  .sbtn { font-size:12px; font-weight:bold; padding:6px 12px; border-radius:7px; border:1px solid var(--bd); background:#fff; cursor:pointer; font-family:inherit; }
+  .sbtn.edit { color:var(--green-dk); border-color:var(--green); }
+  .sbtn.del { color:#791F1F; border-color:#e8b4b4; }
+  .sbadge { font-size:10.5px; padding:2px 8px; border-radius:10px; margin-left:8px; }
+  .sbadge.on { background:#E1F5EE; color:#085041; }
+  .sbadge.off { background:#f0eee7; color:#8a877e; }
 </style></head>
 <body>
 <div class="wrap">
-  <h1>Добавить поставщика</h1>
+  <h1>Поставщики</h1>
   <div id="cfgwarn"></div>
+
+  <div id="tabs" class="tabs">
+    <button type="button" class="tab active" data-tab="add">Добавить</button>
+    <button type="button" class="tab" data-tab="list">Список / изменить</button>
+  </div>
+
+  <div id="tabAdd">
 
   <label>Название компании <span class="hint">обязательно</span></label>
   <input type="text" id="name" placeholder="ABC Cable Factory">
@@ -203,7 +225,31 @@
     </div>
   </div>
 
+  <div id="editHint" class="review" style="display:none; margin-top:14px">
+    Режим редактирования выбранного поставщика. <a href="#" id="cancelEdit" style="color:var(--green-dk); font-weight:bold">Отменить и очистить</a>
+  </div>
   <button class="save" id="save">Сохранить поставщика</button>
+  </div><!-- /tabAdd -->
+
+  <div id="tabList" style="display:none">
+    <div id="loginBox">
+      <label>Вход для администратора</label>
+      <input type="email" id="liEmail" placeholder="email" autocomplete="username">
+      <input type="password" id="liPass" placeholder="пароль" autocomplete="current-password" style="margin-top:8px">
+      <div id="liErr" class="review" style="display:none"></div>
+      <button class="save" id="liBtn" style="margin-top:12px">Войти</button>
+    </div>
+    <div id="listBox" style="display:none">
+      <div class="lblrow" style="margin-bottom:10px">
+        <span class="smeta">Вы вошли как <b id="whoami"></b></span>
+        <button class="addbtn" id="logoutBtn" style="font-weight:bold">Выйти</button>
+      </div>
+      <input type="text" id="sSearch" placeholder="Поиск: название, email, WhatsApp, тип…">
+      <div class="smeta" style="margin:8px 0"><span id="sCount"></span></div>
+      <div id="slistWrap" class="slist"></div>
+    </div>
+  </div>
+
   <div id="msg"></div>
 </div>
 
@@ -247,6 +293,7 @@ function setBudget(which) {       // which = 'bmin' | 'bmax'  ->  toggle id 'has
   else $(which).focus();
 }
 let channel = 'email';            // 'email' | 'both' | 'whatsapp'
+let editingId = null;             // supplier id being edited (null = add mode)
 function setChannel(ch) {
   const _btn = document.querySelector('#channelToggle .seg3-opt[data-ch="' + ch + '"]');
   if (_btn && _btn.disabled) return;   // channel temporarily disabled — ignore
@@ -488,6 +535,21 @@ async function save() {
     active: true,
   };
   $('save').disabled = true;
+  if (editingId) {
+    const payload = { ...row }; delete payload.active;   // edit: leave active as-is (use the toggle to change it)
+    let { error } = await sb.from('suppliers').update(payload).eq('id', editingId);
+    if (error && /order_qty|order_unit|whatsapp|contact_channel|could not find|column/i.test(error.message || '')) {
+      const base = { ...payload };
+      delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.whatsapp; delete base.contact_channel;
+      ({ error } = await sb.from('suppliers').update(base).eq('id', editingId));
+    }
+    $('save').disabled = false;
+    if (error) return showMsg('Ошибка обновления: ' + error.message, false);
+    showMsg('Поставщик «' + name + '» обновлён.', true);
+    exitEditMode();
+    showTab('list');
+    return;
+  }
   // duplicate check via a SECURITY DEFINER function, so anon never reads the suppliers table directly
   if (needEmail && emails.length) {
     const { data: exists, error: chkErr } = await sb.rpc('supplier_email_exists', { p_emails: emails.map(e => e.trim()).filter(Boolean) });
@@ -505,7 +567,10 @@ async function save() {
   if (error) return showMsg('Ошибка сохранения: ' + error.message, false);
 
   showMsg('Поставщик «' + name + '» сохранён.', true);
-  // reset
+  resetForm();
+}
+
+function resetForm() {
   $('name').value = '';
   $('hasBmin').checked = false; setBudget('bmin');
   $('hasBmax').checked = false; setBudget('bmax');
@@ -520,7 +585,6 @@ async function save() {
   renderCatSel();
   renderRegSel();
   renderTypeSel();
-  // reset the analyzer panel
   $('catalogUrl').value = ''; if ($('catalogPdf')) $('catalogPdf').value = '';
   $('analyzeProposed').innerHTML = ''; setAnStatus('', '');
 }
@@ -584,6 +648,140 @@ async function applyAnalysis(j) {
     '. Проверьте и при необходимости поправьте.', 'ok');
 }
 
+// ================= Tabs + admin management =================
+let allSuppliers = [];
+
+function showTab(name) {
+  document.querySelectorAll('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  $('tabAdd').style.display  = name === 'add'  ? '' : 'none';
+  $('tabList').style.display = name === 'list' ? '' : 'none';
+  if (name === 'list') refreshAuthUI();
+}
+
+async function refreshAuthUI() {
+  if (!sb) return;
+  const { data } = await sb.auth.getSession();
+  const authed = !!(data && data.session);
+  $('loginBox').style.display = authed ? 'none' : '';
+  $('listBox').style.display  = authed ? '' : 'none';
+  if (authed) { $('whoami').textContent = data.session.user.email; loadSuppliers(); }
+}
+
+async function signIn() {
+  const email = $('liEmail').value.trim(); const pw = $('liPass').value;
+  if (!email || !pw) { $('liErr').textContent = 'Введите email и пароль.'; $('liErr').style.display = ''; return; }
+  $('liBtn').disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  $('liBtn').disabled = false;
+  if (error) { $('liErr').textContent = 'Не удалось войти: ' + error.message; $('liErr').style.display = ''; return; }
+  $('liErr').style.display = 'none'; $('liPass').value = '';
+  refreshAuthUI();
+}
+async function signOut() { await sb.auth.signOut(); refreshAuthUI(); }
+
+async function loadSuppliers() {
+  $('slistWrap').innerHTML = '<div class="smeta">Загрузка…</div>';
+  const { data, error } = await sb.from('suppliers').select('*').order('name');
+  if (error) { $('slistWrap').innerHTML = '<div class="review">Ошибка: ' + error.message + '</div>'; return; }
+  allSuppliers = data || [];
+  renderSuppliers();
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function supplierHaystack(s) {
+  return [s.name, s.email, (s.emails || []).join(' '), s.whatsapp, (s.phone || []).join(' '),
+    (s.category_keys || []).map(k => (catByKey.get(k) || {}).name || k).join(' '),
+    (s.type_keys || []).join(' ')].filter(Boolean).join(' ').toLowerCase();
+}
+
+function renderSuppliers() {
+  const q = ($('sSearch').value || '').trim().toLowerCase();
+  const list = allSuppliers.filter(s => !q || supplierHaystack(s).includes(q));
+  $('sCount').textContent = 'показано ' + list.length + ' из ' + allSuppliers.length;
+  const wrap = $('slistWrap'); wrap.innerHTML = '';
+  if (!list.length) { wrap.innerHTML = '<div class="smeta">Ничего не найдено.</div>'; return; }
+  for (const s of list) wrap.appendChild(supplierCard(s));
+}
+
+function supplierCard(s) {
+  const on = s.active !== false;
+  const contact = s.contact_channel === 'whatsapp'
+    ? ('WhatsApp ' + (s.whatsapp || ''))
+    : (s.email || (s.emails && s.emails[0]) || (s.whatsapp ? 'WhatsApp ' + s.whatsapp : '—'));
+  const cats = (s.category_keys || []).map(k => (catByKey.get(k) || {}).name || k).join(', ');
+  const div = document.createElement('div'); div.className = 'scard';
+  div.innerHTML =
+    '<div class="snm">' + esc(s.name || '—') + '<span class="sbadge ' + (on ? 'on' : 'off') + '">' + (on ? 'активен' : 'выключен') + '</span></div>' +
+    '<div class="smeta">' + esc(contact) + (cats ? ' · ' + esc(cats) : '') + ' · типов: ' + ((s.type_keys || []).length) + '</div>';
+  const act = document.createElement('div'); act.className = 'sact';
+  const eb = document.createElement('button'); eb.className = 'sbtn edit'; eb.textContent = 'Изменить'; eb.onclick = () => editSupplier(s);
+  const tb = document.createElement('button'); tb.className = 'sbtn'; tb.textContent = on ? 'Выключить' : 'Включить'; tb.onclick = () => toggleActive(s);
+  const db = document.createElement('button'); db.className = 'sbtn del'; db.textContent = 'Удалить'; db.onclick = () => removeSupplier(s);
+  act.append(eb, tb, db); div.appendChild(act);
+  return div;
+}
+
+async function toggleActive(s) {
+  const next = !(s.active !== false);
+  const { error } = await sb.from('suppliers').update({ active: next }).eq('id', s.id);
+  if (error) return showMsg('Ошибка: ' + error.message, false);
+  s.active = next; renderSuppliers();
+}
+
+async function removeSupplier(s) {
+  if (!confirm('Удалить поставщика «' + (s.name || '') + '»? Действие необратимо.')) return;
+  const { error } = await sb.from('suppliers').delete().eq('id', s.id);
+  if (error) return showMsg('Ошибка удаления: ' + error.message, false);
+  allSuppliers = allSuppliers.filter(x => x.id !== s.id); renderSuppliers();
+  showMsg('Поставщик удалён.', true);
+}
+
+function rowWithValue(container, type, placeholder, value) {
+  repeatRow(container, type, placeholder);
+  const inputs = container.querySelectorAll('input');
+  inputs[inputs.length - 1].value = value || '';
+}
+function setNumToggle(which, val) {
+  const has = $('has' + which.charAt(0).toUpperCase() + which.slice(1));
+  const hasVal = val != null && val !== '';
+  has.checked = hasVal;
+  $(which).disabled = !hasVal;
+  $(which).value = hasVal ? val : '';
+}
+
+function editSupplier(s) {
+  editingId = s.id;
+  $('name').value = s.name || '';
+  const em = (s.emails && s.emails.length) ? s.emails : (s.email ? [s.email] : []);
+  $('emails').innerHTML = '';
+  if (em.length) em.forEach(v => rowWithValue($('emails'), 'email', 'sales@company.com', v));
+  else repeatRow($('emails'), 'email', 'sales@company.com');
+  $('wa').value = s.whatsapp || '';
+  setChannel(['email', 'whatsapp', 'both'].includes(s.contact_channel) ? s.contact_channel : 'email');
+  const ph = s.phone || [];
+  if (ph.length) { $('hasPhone').checked = true; setPhoneEnabled(true); $('phones').innerHTML = ''; ph.forEach(v => rowWithValue($('phones'), 'text', '+7 ...', v)); }
+  else { $('hasPhone').checked = false; setPhoneEnabled(false); $('phones').innerHTML = ''; repeatRow($('phones'), 'text', '+7 ...'); }
+  setNumToggle('bmin', s.minimum_budget); setNumToggle('bmax', s.maximum_budget);
+  setNumToggle('qmin', s.minimum_order_qty); setNumToggle('qmax', s.maximum_order_qty);
+  if (s.order_unit && [...$('orderUnit').options].some(o => o.value === s.order_unit)) $('orderUnit').value = s.order_unit;
+  sel.cats.clear();    (s.category_keys || []).forEach(k => sel.cats.add(k));
+  sel.types.clear();   (s.type_keys || []).forEach(k => sel.types.add(k));
+  sel.regions.clear(); (s.regions || []).forEach(k => sel.regions.add(k));
+  renderCatSel(); renderRegSel(); renderTypeSel();
+  $('save').textContent = 'Обновить поставщика';
+  $('editHint').style.display = '';
+  showTab('add');
+  window.scrollTo(0, 0);
+}
+
+function exitEditMode() {
+  editingId = null;
+  $('save').textContent = 'Сохранить поставщика';
+  $('editHint').style.display = 'none';
+  resetForm();
+}
+
 (function init() {
   repeatRow($('emails'), 'email', 'sales@company.com');
   repeatRow($('phones'), 'text', '+7 ...');
@@ -599,6 +797,12 @@ async function applyAnalysis(j) {
   setChannel('email');
   $('analyzeBtn').onclick = analyze;
   $('save').onclick = save;
+  document.querySelectorAll('#tabs .tab').forEach(t => { t.onclick = () => showTab(t.dataset.tab); });
+  $('liBtn').onclick = signIn;
+  $('liPass').onkeydown = (e) => { if (e.key === 'Enter') signIn(); };
+  $('logoutBtn').onclick = signOut;
+  $('sSearch').oninput = renderSuppliers;
+  $('cancelEdit').onclick = (e) => { e.preventDefault(); exitEditMode(); };
   $('catSel').onclick  = () => { $('catMenu').classList.contains('open')  ? closeCatMenu()  : openCatMenu(); };
   $('typeSel').onclick = () => {
     if (!sel.cats.size) { $('typeWarn').classList.add('show'); return; }
