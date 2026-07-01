@@ -485,16 +485,11 @@ async function save() {
     active: true,
   };
   $('save').disabled = true;
-  // ask the DB directly: does any entered email already exist? (email column OR emails array)
+  // duplicate check via a SECURITY DEFINER function, so anon never reads the suppliers table directly
   if (needEmail && emails.length) {
-    const orFilter = emails.map(e => e.trim()).filter(Boolean).flatMap(e => {
-      const ilk = e.toLowerCase().replace(/([%_])/g, '\\$1');   // escape ilike wildcards
-      return ['email.ilike.' + ilk, 'emails.cs.{' + e + '}'];   // case-insensitive col + array-contains
-    }).join(',');
-    const { data: dupRows, error: chkErr } = await sb
-      .from('suppliers').select('id,name').or(orFilter).limit(1);
-    if (chkErr) { $('save').disabled = false; return showMsg('Ошибка проверки базы: ' + chkErr.message, false); }
-    if (dupRows && dupRows.length) { $('save').disabled = false; return showMsg('Этот email уже в базе — «' + (dupRows[0].name || 'поставщик') + '» уже добавлен.', false); }
+    const { data: exists, error: chkErr } = await sb.rpc('supplier_email_exists', { p_emails: emails.map(e => e.trim()).filter(Boolean) });
+    if (chkErr) { console.warn('dedup check skipped:', chkErr.message); }   // fail-open: never block a save if the check is unavailable
+    else if (exists) { $('save').disabled = false; return showMsg('Этот email уже в базе — поставщик с этим email уже добавлен.', false); }
   }
 
   let { error } = await sb.from('suppliers').insert(row);
