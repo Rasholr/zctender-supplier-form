@@ -233,9 +233,8 @@
 
   <div id="tabList" style="display:none">
     <div id="loginBox">
-      <label>Вход для администратора</label>
-      <input type="email" id="liEmail" placeholder="email" autocomplete="username">
-      <input type="password" id="liPass" placeholder="пароль" autocomplete="current-password" style="margin-top:8px">
+      <label>Вход для администратора <span class="hint">введите пароль</span></label>
+      <input type="password" id="liPass" placeholder="пароль" autocomplete="current-password">
       <div id="liErr" class="review" style="display:none"></div>
       <button class="save" id="liBtn" style="margin-top:12px">Войти</button>
     </div>
@@ -258,6 +257,7 @@
 const SUPABASE_URL = 'https://klzskttlfxfllcqhuosk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsenNrdHRsZnhmbGxjcWh1b3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMTY1OTUsImV4cCI6MjA5NTc5MjU5NX0.OfaAXg4vqGnAUzApSi9mZaFGGPvpiYzmD09uZbmGczE';
 const ANALYZE_WEBHOOK_URL = 'https://n8n.rassultilektes.com/webhook/analyze-catalog';  // n8n catalogue-analyzer webhook
+const ADMIN_EMAIL = 'rasultilektes@gmail.com';  // login uses this fixed email + the typed password (must match the Supabase admin user & RLS policy)
 
 const $ = (id) => document.getElementById(id);
 let sb = null;
@@ -668,12 +668,12 @@ async function refreshAuthUI() {
 }
 
 async function signIn() {
-  const email = $('liEmail').value.trim(); const pw = $('liPass').value;
-  if (!email || !pw) { $('liErr').textContent = 'Введите email и пароль.'; $('liErr').style.display = ''; return; }
+  const pw = $('liPass').value;
+  if (!pw) { $('liErr').textContent = 'Введите пароль.'; $('liErr').style.display = ''; return; }
   $('liBtn').disabled = true;
-  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  const { error } = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
   $('liBtn').disabled = false;
-  if (error) { $('liErr').textContent = 'Не удалось войти: ' + error.message; $('liErr').style.display = ''; return; }
+  if (error) { $('liErr').textContent = 'Неверный пароль.'; $('liErr').style.display = ''; return; }
   $('liErr').style.display = 'none'; $('liPass').value = '';
   refreshAuthUI();
 }
