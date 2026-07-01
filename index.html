@@ -101,6 +101,7 @@
   .sbadge { font-size:10.5px; padding:2px 8px; border-radius:10px; margin-left:8px; }
   .sbadge.on { background:#E1F5EE; color:#085041; }
   .sbadge.off { background:#f0eee7; color:#8a877e; }
+  .catgrp { font-size:11px; font-weight:bold; color:var(--green-dk); text-transform:uppercase; letter-spacing:.3px; margin:14px 0 4px; border-bottom:1px solid var(--bd); padding-bottom:4px; }
   #modalBackdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:150; display:none; }
   body.modal-open { overflow:hidden; }
   body.modal-open #modalBackdrop { display:block; }
@@ -256,6 +257,9 @@
         <span class="smeta">Вы вошли как <b id="whoami"></b></span>
         <button class="addbtn" id="logoutBtn" style="font-weight:bold">Выйти</button>
       </div>
+      <select id="catFilter" style="width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff; margin-bottom:8px">
+        <option value="">Все категории</option>
+      </select>
       <input type="text" id="sSearch" placeholder="Поиск: название, email, WhatsApp, тип…">
       <div class="smeta" style="margin:8px 0"><span id="sCount"></span></div>
       <div id="slistWrap" class="slist"></div>
@@ -697,6 +701,7 @@ async function loadSuppliers() {
   const { data, error } = await sb.from('suppliers').select('*').order('name');
   if (error) { $('slistWrap').innerHTML = '<div class="review">Ошибка: ' + error.message + '</div>'; return; }
   allSuppliers = data || [];
+  fillCatFilter();
   renderSuppliers();
 }
 
@@ -708,13 +713,36 @@ function supplierHaystack(s) {
     (s.type_keys || []).join(' ')].filter(Boolean).join(' ').toLowerCase();
 }
 
+function fillCatFilter() {
+  const selEl = $('catFilter'); const cur = selEl.value;
+  selEl.innerHTML = '<option value="">Все категории</option>' +
+    LOOKUPS.categories.map(c => '<option value="' + c.key + '">' + esc(c.name) + '</option>').join('');
+  selEl.value = cur;   // keep the current choice if it still exists
+}
+
 function renderSuppliers() {
   const q = ($('sSearch').value || '').trim().toLowerCase();
-  const list = allSuppliers.filter(s => !q || supplierHaystack(s).includes(q));
+  const cat = $('catFilter').value;
+  let list = allSuppliers.filter(s => !q || supplierHaystack(s).includes(q));
+  if (cat) list = list.filter(s => (s.category_keys || []).includes(cat));
   $('sCount').textContent = 'показано ' + list.length + ' из ' + allSuppliers.length;
   const wrap = $('slistWrap'); wrap.innerHTML = '';
   if (!list.length) { wrap.innerHTML = '<div class="smeta">Ничего не найдено.</div>'; return; }
-  for (const s of list) wrap.appendChild(supplierCard(s));
+  if (cat) { for (const s of list) wrap.appendChild(supplierCard(s)); return; }
+  // "Все категории" -> group under category headers (a supplier in several categories shows in each)
+  const groups = new Map(); const NONE = '__none__';
+  for (const s of list) {
+    const keys = (s.category_keys && s.category_keys.length) ? s.category_keys : [NONE];
+    for (const k of keys) { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); }
+  }
+  const order = [...LOOKUPS.categories.map(c => c.key), NONE];
+  for (const k of order) {
+    const arr = groups.get(k); if (!arr || !arr.length) continue;
+    const h = document.createElement('div'); h.className = 'catgrp';
+    h.textContent = (k === NONE ? 'Без категории' : ((catByKey.get(k) || {}).name || k)) + ' (' + arr.length + ')';
+    wrap.appendChild(h);
+    for (const s of arr) wrap.appendChild(supplierCard(s));
+  }
 }
 
 function supplierCard(s) {
@@ -826,6 +854,7 @@ function closeEditModal() {
   $('liPass').onkeydown = (e) => { if (e.key === 'Enter') signIn(); };
   $('logoutBtn').onclick = signOut;
   $('sSearch').oninput = renderSuppliers;
+  $('catFilter').onchange = renderSuppliers;
   $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
   $('modalClose').onclick = closeEditModal;
   $('modalBackdrop').onclick = closeEditModal;
