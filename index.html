@@ -72,7 +72,7 @@
   .save { margin-top:22px; width:100%; padding:12px; font-size:15px; font-weight:bold; color:#fff; background:var(--green); border:none; border-radius:8px; cursor:pointer; }
   .save:disabled { background:#9cc3ab; cursor:default; }
   #msg { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:100;
-    min-width:300px; max-width:92%; text-align:center; font-size:15px; font-weight:bold;
+    min-width:300px; max-width:92%; text-align:center; font-size:15px; font-weight:bold; z-index:300;
     padding:14px 22px; border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.20); display:none; }
   #msg.ok  { display:block; background:#E1F5EE; color:#085041; border:1px solid #9ad9c2; }
   #msg.err { display:block; background:#FCEBEB; color:#791F1F; border:1px solid #e8b4b4; }
@@ -101,8 +101,20 @@
   .sbadge { font-size:10.5px; padding:2px 8px; border-radius:10px; margin-left:8px; }
   .sbadge.on { background:#E1F5EE; color:#085041; }
   .sbadge.off { background:#f0eee7; color:#8a877e; }
+  #modalBackdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:150; display:none; }
+  body.modal-open { overflow:hidden; }
+  body.modal-open #modalBackdrop { display:block; }
+  body.modal-open #tabAdd { position:fixed; top:2.5vh; left:50%; transform:translateX(-50%);
+    width:min(720px,94vw); max-height:95vh; overflow:auto; background:#fff; border-radius:12px;
+    padding:18px 24px 24px; z-index:160; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+  body.modal-open #editHint { display:none !important; }
+  #modalHead { display:none; }
+  body.modal-open #modalHead { display:flex; justify-content:space-between; align-items:center; margin:0 0 10px; }
+  #modalHead .mt { font-size:16px; font-weight:bold; }
+  #modalClose { border:none; background:none; font-size:26px; line-height:1; color:var(--mut); cursor:pointer; padding:0 4px; }
 </style></head>
 <body>
+<div id="modalBackdrop"></div>
 <div class="wrap">
   <h1>Поставщики</h1>
   <div id="cfgwarn"></div>
@@ -113,6 +125,7 @@
   </div>
 
   <div id="tabAdd">
+  <div id="modalHead"><span class="mt">Изменить поставщика</span><button type="button" id="modalClose" aria-label="Закрыть">&times;</button></div>
 
   <label>Название компании <span class="hint">обязательно</span></label>
   <input type="text" id="name" placeholder="ABC Cable Factory">
@@ -546,8 +559,8 @@ async function save() {
     $('save').disabled = false;
     if (error) return showMsg('Ошибка обновления: ' + error.message, false);
     showMsg('Поставщик «' + name + '» обновлён.', true);
-    exitEditMode();
-    showTab('list');
+    closeEditModal();
+    loadSuppliers();
     return;
   }
   // duplicate check via a SECURITY DEFINER function, so anon never reads the suppliers table directly
@@ -771,8 +784,7 @@ function editSupplier(s) {
   renderCatSel(); renderRegSel(); renderTypeSel();
   $('save').textContent = 'Обновить поставщика';
   $('editHint').style.display = '';
-  showTab('add');
-  window.scrollTo(0, 0);
+  openEditModal();
 }
 
 function exitEditMode() {
@@ -780,6 +792,18 @@ function exitEditMode() {
   $('save').textContent = 'Сохранить поставщика';
   $('editHint').style.display = 'none';
   resetForm();
+}
+
+function openEditModal() {
+  $('tabAdd').style.display = '';        // show the form as a dialog over the list
+  document.body.classList.add('modal-open');
+  $('tabAdd').scrollTop = 0;
+}
+function closeEditModal() {
+  document.body.classList.remove('modal-open');
+  const active = document.querySelector('#tabs .tab.active');
+  $('tabAdd').style.display = (active && active.dataset.tab === 'add') ? '' : 'none';
+  exitEditMode();
 }
 
 (function init() {
@@ -802,7 +826,9 @@ function exitEditMode() {
   $('liPass').onkeydown = (e) => { if (e.key === 'Enter') signIn(); };
   $('logoutBtn').onclick = signOut;
   $('sSearch').oninput = renderSuppliers;
-  $('cancelEdit').onclick = (e) => { e.preventDefault(); exitEditMode(); };
+  $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
+  $('modalClose').onclick = closeEditModal;
+  $('modalBackdrop').onclick = closeEditModal;
   $('catSel').onclick  = () => { $('catMenu').classList.contains('open')  ? closeCatMenu()  : openCatMenu(); };
   $('typeSel').onclick = () => {
     if (!sel.cats.size) { $('typeWarn').classList.add('show'); return; }
