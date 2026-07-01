@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZCTender — добавить поставщика</title>
+<style>
+  :root { --bd:#cfe0d4; --mut:#5f6b63; --green:#00732a; --green-dk:#00531e; --bg:#EEF4F0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); font-family:Arial,Helvetica,sans-serif; color:#2C2C2A; }
+  .wrap { max-width:720px; margin:24px auto; background:#fff; border:1px solid var(--bd); border-radius:12px; padding:0 24px 24px; }
+  h1 { font-size:18px; font-weight:bold; background:var(--green-dk); color:#fff; margin:0 -24px 18px; padding:16px 24px; border-radius:12px 12px 0 0; }
+  label { display:block; font-size:13px; font-weight:bold; margin:16px 0 6px; }
+  .hint { font-size:11.5px; color:var(--mut); font-weight:normal; margin-left:6px; }
+  input[type=text], input[type=number], input[type=email] {
+    width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; }
+  .row { display:flex; gap:8px; margin-bottom:6px; align-items:center; }
+  .row input { flex:1; }
+  .mini { border:1px solid var(--bd); background:#fff; border-radius:8px; width:34px; height:34px; font-size:18px; cursor:pointer; color:var(--mut); }
+  .addbtn { font-size:12px; color:var(--green); background:none; border:none; cursor:pointer; padding:2px 0; }
+  .lblrow { display:flex; align-items:center; justify-content:space-between; }
+  .switch { position:relative; display:inline-block; width:42px; height:24px; margin:0; cursor:pointer; flex:0 0 auto; }
+  .switch input { opacity:0; width:0; height:0; }
+  .switch .track { position:absolute; inset:0; background:#cfccc2; border-radius:24px; transition:.15s; }
+  .switch .track:before { content:""; position:absolute; height:18px; width:18px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.15s; }
+  .switch input:checked + .track { background:var(--green); }
+  .switch input:checked + .track:before { transform:translateX(18px); }
+  .seg3 { position:relative; display:flex; background:var(--bd); border-radius:999px; padding:4px; margin:6px 0 14px; user-select:none; }
+  .seg3-opt { flex:1; position:relative; z-index:1; border:0; background:transparent; padding:9px 4px; font-size:13.5px; font-weight:bold; color:var(--mut); cursor:pointer; border-radius:999px; transition:color .2s; font-family:inherit; }
+  .seg3-opt.active { color:#fff; }
+  .seg3-thumb { position:absolute; top:4px; bottom:4px; left:4px; width:calc((100% - 8px) / 3); background:var(--green); border-radius:999px; transition:left .2s; z-index:0; }
+  .cfield { background:#EAF6EE; border:1px solid var(--green); border-radius:10px; padding:8px 14px 12px; margin:0 0 12px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font-size:12.5px; padding:5px 11px; border:1px solid var(--bd); border-radius:16px; cursor:pointer; background:#fff; user-select:none; }
+  .chip.sel { background:#E6F2EA; border-color:var(--green); color:#0E4429; font-weight:bold; }
+  .tokensel { position:relative; border:1px solid var(--bd); border-radius:8px; padding:7px 10px; min-height:40px;
+    cursor:pointer; display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:#fff; }
+  .tokensel.open { border-color:var(--green); box-shadow:0 0 0 2px #E6F2EA; }
+  .token { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:4px 5px 4px 11px;
+    background:#E6F2EA; border:1px solid var(--green); color:#0E4429; border-radius:16px; font-weight:bold; }
+  .token .x { cursor:pointer; font-size:15px; line-height:1; padding:0 3px; color:#0E4429; }
+  .token .x:hover { color:#791F1F; }
+  .tokplace { color:var(--mut); font-size:13px; }
+  .tokmenu { position:absolute; left:0; right:0; top:calc(100% + 4px); background:#fff; border:1px solid var(--bd);
+    border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.12); z-index:20; display:none; max-height:220px; overflow:auto; }
+  .tokmenu.open { display:block; }
+  .tokopt { padding:9px 12px; font-size:13.5px; cursor:pointer; }
+  .tokopt:hover { background:#E6F2EA; }
+  .tokopt.addopt { color:var(--green); font-weight:bold; border-bottom:1px solid var(--bd); }
+  .tokmenu .empty { padding:9px 12px; font-size:13px; color:var(--mut); }
+  .tokmenu .tokgrp { padding:7px 12px 3px; font-size:10.5px; color:var(--mut); text-transform:uppercase; letter-spacing:.3px; }
+  .tokmenu .tokfind { position:sticky; top:0; width:100%; border:none; border-bottom:1px solid var(--bd);
+    border-radius:0; padding:9px 12px; font-size:13.5px; outline:none; background:#fff; z-index:1; }
+  .tokensel.disabled { background:#f5f3ee; cursor:not-allowed; }
+  .tokensel.disabled .tokplace { color:#a9a79f; }
+  .warnbox { background:#FAEEDA; color:#633806; font-size:12.5px; padding:8px 11px; border-radius:8px; margin-top:6px; display:none; }
+  .warnbox.show { display:block; }
+  .analyzer { border:1px dashed var(--green); background:#F3FAF5; border-radius:10px; padding:12px 14px; margin-top:14px; }
+  .analyzer .ahead { font-size:13px; font-weight:bold; margin:0 0 8px; }
+  .anstatus { font-size:12.5px; margin-top:8px; color:var(--mut); }
+  .anstatus.busy { color:var(--green); }
+  .anstatus.ok { color:var(--green-dk); }
+  .anstatus.err { color:#791F1F; }
+  .proposed-lbl { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.3px; margin:10px 0 5px; }
+  .proposed { display:flex; flex-wrap:wrap; gap:6px; }
+  .pchip { font-size:12.5px; padding:5px 11px; border:1px dashed var(--green); border-radius:16px; cursor:pointer; background:#fff; color:var(--green-dk); }
+  .pchip:hover { background:#E6F2EA; }
+  input:disabled, select:disabled { background:#f5f3ee; color:#a9a79f; cursor:not-allowed; }
+  .addbtn:disabled { color:#a9a79f; cursor:not-allowed; }
+  .twocol { display:flex; gap:12px; }
+  .twocol > div { flex:1; }
+  #typesBox { border:1px solid var(--bd); border-radius:8px; padding:10px; }
+  .typegrp { font-size:11px; color:var(--mut); text-transform:uppercase; margin:8px 0 4px; }
+  .save { margin-top:22px; width:100%; padding:12px; font-size:15px; font-weight:bold; color:#fff; background:var(--green); border:none; border-radius:8px; cursor:pointer; }
+  .save:disabled { background:#9cc3ab; cursor:default; }
+  #msg { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:100;
+    min-width:300px; max-width:92%; text-align:center; font-size:15px; font-weight:bold;
+    padding:14px 22px; border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.20); display:none; }
+  #msg.ok  { display:block; background:#E1F5EE; color:#085041; border:1px solid #9ad9c2; }
+  #msg.err { display:block; background:#FCEBEB; color:#791F1F; border:1px solid #e8b4b4; }
+  #msg.ok, #msg.err { animation:msgIn .18s ease-out; }
+  @keyframes msgIn { from { opacity:0; transform:translate(-50%,-10px); } to { opacity:1; transform:translate(-50%,0); } }
+  #cfgwarn { background:#FAEEDA; color:#633806; font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:12px; display:none; }
+  textarea { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; border:1px solid var(--bd); border-radius:8px; padding:8px; resize:vertical; width:100%; }
+  .step { font-size:12px; font-weight:bold; color:var(--green-dk); margin:12px 0 5px; }
+  .repsec { margin-top:10px; }
+  .repsec .t { font-size:10.5px; color:var(--mut); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+  .okchip { display:inline-block; font-size:12px; padding:4px 10px; margin:0 5px 5px 0; background:#E6F2EA; border:1px solid var(--green); color:#0E4429; border-radius:14px; }
+  .badchip { display:inline-block; font-size:12px; padding:4px 10px; margin:0 5px 5px 0; background:#f6efef; border:1px solid #d9b9b9; color:#793b3b; border-radius:14px; text-decoration:line-through; }
+  .review { background:#FAEEDA; color:#633806; font-size:12.5px; padding:8px 11px; border-radius:8px; margin-top:8px; }
+</style></head>
+<body>
+<div class="wrap">
+  <h1>Добавить поставщика</h1>
+  <div id="cfgwarn"></div>
+
+  <label>Название компании <span class="hint">обязательно</span></label>
+  <input type="text" id="name" placeholder="ABC Cable Factory">
+
+  <label style="margin:16px 0 2px">Способ связи <span class="hint">куда отправлять запросы</span></label>
+  <div id="channelToggle" class="seg3">
+    <div class="seg3-thumb" id="seg3Thumb"></div>
+    <button type="button" class="seg3-opt" data-ch="email">Email</button>
+    <button type="button" class="seg3-opt" data-ch="both">Оба</button>
+    <button type="button" class="seg3-opt" data-ch="whatsapp">WhatsApp</button>
+  </div>
+
+  <div id="emailWrap" class="cfield">
+    <label style="margin-top:4px">Email <span class="hint">один или несколько</span></label>
+    <div id="emails"></div>
+    <button class="addbtn" id="addEmail">+ добавить email</button>
+  </div>
+
+  <div id="waWrap" class="cfield">
+    <label style="margin-top:4px">WhatsApp <span class="hint">номер для рассылки</span></label>
+    <input type="text" id="wa" placeholder="+7 701 234 56 78">
+  </div>
+
+  <div class="lblrow">
+    <label style="margin:16px 0 6px">Телефон <span class="hint" id="phoneHint">нет телефона</span></label>
+    <label class="switch"><input type="checkbox" id="hasPhone"><span class="track"></span></label>
+  </div>
+  <div id="phoneWrap">
+    <div id="phones"></div>
+    <button class="addbtn" id="addPhone">+ добавить телефон</button>
+  </div>
+
+  <label>Категории <span class="hint">обязательно — нажмите, чтобы выбрать</span></label>
+  <div class="tokensel" id="catSel" tabindex="0">
+    <div class="tokens" id="catTokens" style="display:contents"></div>
+    <span class="tokplace" id="catPlace">+ выберите категорию</span>
+    <div class="tokmenu" id="catMenu"></div>
+  </div>
+
+  <div class="analyzer">
+    <div class="ahead">Автозаполнение из каталога <span class="hint">сначала выберите категорию — ИИ найдёт типы по сайту или PDF</span></div>
+    <input type="text" id="catalogUrl" placeholder="https://сайт-поставщика.kz/catalog">
+    <div class="row" style="margin-top:8px">
+      <input type="file" id="catalogPdf" accept="application/pdf" style="flex:1">
+      <button class="addbtn" id="analyzeBtn" style="white-space:nowrap; font-weight:bold">Анализировать</button>
+    </div>
+    <div id="analyzeStatus" class="anstatus"></div>
+    <div id="analyzeProposed"></div>
+  </div>
+
+  <label>Типы (возможности) <span class="hint">можно несколько</span></label>
+  <div class="tokensel" id="typeSel" tabindex="0">
+    <div class="tokens" id="typeTokens" style="display:contents"></div>
+    <span class="tokplace" id="typePlace">сначала выберите категорию</span>
+    <div class="tokmenu" id="typeMenu">
+      <input id="typeFind" class="tokfind" placeholder="поиск типа…" autocomplete="off">
+      <div id="typeOpts"></div>
+    </div>
+  </div>
+  <div id="typeWarn" class="warnbox">Сначала выберите категории выше.</div>
+
+  <label>Регионы поставки <span class="hint">можно несколько</span></label>
+  <div class="tokensel" id="regSel" tabindex="0">
+    <div class="tokens" id="regTokens" style="display:contents"></div>
+    <span class="tokplace" id="regPlace">+ выберите регион</span>
+    <div class="tokmenu" id="regMenu"></div>
+  </div>
+
+  <div class="twocol">
+    <div>
+      <div class="lblrow">
+        <label style="margin:16px 0 6px">Мин. бюджет (₸)</label>
+        <label class="switch"><input type="checkbox" id="hasBmin"><span class="track"></span></label>
+      </div>
+      <input type="number" id="bmin" placeholder="напр. 100000" disabled>
+    </div>
+    <div>
+      <div class="lblrow">
+        <label style="margin:16px 0 6px">Макс. бюджет (₸)</label>
+        <label class="switch"><input type="checkbox" id="hasBmax"><span class="track"></span></label>
+      </div>
+      <input type="number" id="bmax" placeholder="напр. 50000000" disabled>
+    </div>
+  </div>
+
+  <label>Объём заказа <span class="hint">мин./макс. количество — для оптовиков и небольших поставщиков</span></label>
+  <select id="orderUnit" style="width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+    <option value="метр">метр (м)</option>
+    <option value="километр">километр (км)</option>
+    <option value="штука">штука (шт)</option>
+    <option value="бухта">бухта</option>
+    <option value="рулон">рулон</option>
+    <option value="тонна">тонна (т)</option>
+    <option value="комплект">комплект</option>
+  </select>
+  <div class="twocol">
+    <div>
+      <div class="lblrow">
+        <label style="margin:12px 0 6px">Мин. заказ</label>
+        <label class="switch"><input type="checkbox" id="hasQmin"><span class="track"></span></label>
+      </div>
+      <input type="number" id="qmin" placeholder="напр. 1000" disabled>
+    </div>
+    <div>
+      <div class="lblrow">
+        <label style="margin:12px 0 6px">Макс. заказ</label>
+        <label class="switch"><input type="checkbox" id="hasQmax"><span class="track"></span></label>
+      </div>
+      <input type="number" id="qmax" placeholder="напр. 100000" disabled>
+    </div>
+  </div>
+
+  <button class="save" id="save">Сохранить поставщика</button>
+  <div id="msg"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://klzskttlfxfllcqhuosk.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsenNrdHRsZnhmbGxjcWh1b3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMTY1OTUsImV4cCI6MjA5NTc5MjU5NX0.OfaAXg4vqGnAUzApSi9mZaFGGPvpiYzmD09uZbmGczE';
+const ANALYZE_WEBHOOK_URL = 'https://n8n.rassultilektes.com/webhook/analyze-catalog';  // n8n catalogue-analyzer webhook
+
+const $ = (id) => document.getElementById(id);
+let sb = null;
+let LOOKUPS = { categories: [], types: [], regions: [] };
+const sel = { cats: new Set(), types: new Set(), regions: new Set() };
+const catById = new Map();  // uuid -> {key,name}
+const catByKey = new Map(); // key  -> {id,name}
+
+let msgTimer = null;
+function showMsg(text, ok) {
+  const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err';
+  if (msgTimer) clearTimeout(msgTimer);
+  if (ok) msgTimer = setTimeout(() => { m.className = ''; }, 4000);  // success fades; errors stay
+}
+
+function repeatRow(container, type, placeholder) {
+  const div = document.createElement('div'); div.className = 'row';
+  div.innerHTML = `<input type="${type}" placeholder="${placeholder}"><button class="mini" title="удалить">&times;</button>`;
+  div.querySelector('button').onclick = () => { if (container.children.length > 1) div.remove(); };
+  container.appendChild(div);
+}
+function readRows(container) {
+  return [...container.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean);
+}
+function setPhoneEnabled(on) {
+  $('phoneWrap').style.display = on ? 'block' : 'none';
+  $('phoneHint').textContent = on ? 'один или несколько' : 'нет телефона';
+}
+function setBudget(which) {       // which = 'bmin' | 'bmax'  ->  toggle id 'hasBmin' / 'hasBmax'
+  const on = $('has' + which.charAt(0).toUpperCase() + which.slice(1)).checked;
+  $(which).disabled = !on;
+  if (!on) $(which).value = '';
+  else $(which).focus();
+}
+let channel = 'email';            // 'email' | 'both' | 'whatsapp'
+function setChannel(ch) {
+  channel = ch;
+  const opts = [...document.querySelectorAll('#channelToggle .seg3-opt')];
+  let idx = 0;
+  opts.forEach((o, i) => { const on = o.dataset.ch === ch; o.classList.toggle('active', on); if (on) idx = i; });
+  $('seg3Thumb').style.left = 'calc(' + idx + ' * ((100% - 8px) / 3) + 4px)';
+  $('emailWrap').style.display = (ch === 'email' || ch === 'both') ? '' : 'none';
+  $('waWrap').style.display    = (ch === 'whatsapp' || ch === 'both') ? '' : 'none';
+}
+
+function renderChips(box, items, set) {
+  box.innerHTML = '';
+  for (const it of items) {
+    const c = document.createElement('div');
+    c.className = 'chip' + (set.has(it.key) ? ' sel' : '');
+    c.textContent = it.name;
+    c.onclick = () => {
+      if (set.has(it.key)) { set.delete(it.key); c.classList.remove('sel'); }
+      else { set.add(it.key); c.classList.add('sel'); }
+      if (box === $('cats')) renderTypeSel();
+    };
+    box.appendChild(c);
+  }
+}
+
+function openCatMenu()  { closeTypeMenu(); closeRegMenu(); $('catMenu').classList.add('open');    $('catSel').classList.add('open'); }
+function closeCatMenu() { $('catMenu').classList.remove('open'); $('catSel').classList.remove('open'); }
+
+function renderCatMenu() {
+  const menu = $('catMenu'); menu.innerHTML = '';
+  const avail = LOOKUPS.categories.filter(c => !sel.cats.has(c.key));
+  if (!avail.length) { menu.innerHTML = '<div class="empty">Все категории выбраны.</div>'; return; }
+  for (const c of avail) {
+    const o = document.createElement('div'); o.className = 'tokopt'; o.textContent = c.name;
+    o.onclick = (e) => { e.stopPropagation(); sel.cats.add(c.key); closeCatMenu(); renderCatSel(); renderTypeSel(); };
+    menu.appendChild(o);
+  }
+}
+
+function renderCatSel() {
+  const tok = $('catTokens'); tok.innerHTML = '';
+  for (const k of sel.cats) {
+    const t = document.createElement('span'); t.className = 'token';
+    t.textContent = catByKey.get(k)?.name || k;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×';
+    x.onclick = (e) => { e.stopPropagation(); sel.cats.delete(k); renderCatSel(); renderTypeSel(); };
+    t.appendChild(x);
+    tok.appendChild(t);
+  }
+  $('catPlace').style.display = sel.cats.size ? 'none' : 'inline';
+  renderCatMenu();
+}
+
+function openRegMenu()  { closeCatMenu(); closeTypeMenu(); $('regMenu').classList.add('open'); $('regSel').classList.add('open'); }
+function closeRegMenu() { $('regMenu').classList.remove('open'); $('regSel').classList.remove('open'); }
+
+const REGION_FLAGS = {
+  kazakhstan: '🇰🇿', cis: '🌐', europe: '🇪🇺',
+  middle_east: '🕌', china: '🇨🇳', other: '🌍',
+};
+function regLabel(r) {
+  return (REGION_FLAGS[r.key] || '🌍') + '  ' + r.name;
+}
+
+function renderRegMenu() {
+  const menu = $('regMenu'); menu.innerHTML = '';
+  const avail = LOOKUPS.regions.filter(r => !sel.regions.has(r.key));
+  if (!avail.length) { menu.innerHTML = '<div class="empty">Все регионы выбраны.</div>'; return; }
+  for (const r of avail) {
+    const o = document.createElement('div'); o.className = 'tokopt'; o.textContent = regLabel(r);
+    o.onclick = (e) => { e.stopPropagation(); sel.regions.add(r.key); closeRegMenu(); renderRegSel(); };
+    menu.appendChild(o);
+  }
+}
+
+function renderRegSel() {
+  const tok = $('regTokens'); tok.innerHTML = '';
+  for (const k of sel.regions) {
+    const r = LOOKUPS.regions.find(x => x.key === k);
+    const t = document.createElement('span'); t.className = 'token';
+    t.textContent = r ? regLabel(r) : k;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×';
+    x.onclick = (e) => { e.stopPropagation(); sel.regions.delete(k); renderRegSel(); };
+    t.appendChild(x);
+    tok.appendChild(t);
+  }
+  $('regPlace').style.display = sel.regions.size ? 'none' : 'inline';
+  renderRegMenu();
+}
+
+function selectedCatIds() {
+  return new Set([...sel.cats].map(k => catByKey.get(k)?.id).filter(Boolean));
+}
+
+function openTypeMenu()  { closeCatMenu(); closeRegMenu(); $('typeMenu').classList.add('open'); $('typeSel').classList.add('open');
+  const f = $('typeFind'); f.value = ''; renderTypeMenu(); f.focus(); }
+function closeTypeMenu() { $('typeMenu').classList.remove('open'); $('typeSel').classList.remove('open'); }
+
+// matches if every typed word is found anywhere in the name —
+// as a substring of the whole name OR a prefix of any word (incl. (КГ), (LS), 2nd/3rd words)
+function typeMatches(name, q) {
+  if (!q) return true;
+  const hay = name.toLowerCase();
+  const tokens = hay.split(/[^0-9a-zа-яё]+/i).filter(Boolean);
+  return q.split(/\s+/).filter(Boolean).every(term =>
+    hay.includes(term) || tokens.some(tok => tok.startsWith(term)));
+}
+
+function renderTypeMenu() {
+  const opts = $('typeOpts'); opts.innerHTML = '';
+  if (!sel.cats.size) { opts.innerHTML = '<div class="empty">Сначала выберите категорию.</div>'; return; }
+  const q = ($('typeFind').value || '').trim();
+  const ql = q.toLowerCase();
+  const multi = sel.cats.size > 1;
+
+  // add-new line(s) at the TOP, under the search field
+  if (q) {
+    for (const k of sel.cats) {
+      const cat = catByKey.get(k);
+      if (LOOKUPS.types.some(t => t.category_id === cat.id && t.name.toLowerCase() === ql)) continue;
+      const a = document.createElement('div'); a.className = 'tokopt addopt';
+      a.textContent = '+ добавить «' + q + '»' + (multi ? ' в ' + cat.name : '');
+      a.onclick = (e) => { e.stopPropagation(); addTypeInline(q, k); };
+      opts.appendChild(a);
+    }
+  }
+
+  // matching existing types below
+  for (const k of sel.cats) {
+    const cat = catByKey.get(k);
+    const list = LOOKUPS.types.filter(t => t.category_id === cat.id && !sel.types.has(t.key) && typeMatches(t.name, ql));
+    if (!list.length) continue;
+    if (multi) { const h = document.createElement('div'); h.className = 'tokgrp'; h.textContent = cat.name; opts.appendChild(h); }
+    for (const t of list) {
+      const o = document.createElement('div'); o.className = 'tokopt'; o.textContent = t.name;
+      o.onclick = (e) => { e.stopPropagation(); sel.types.add(t.key); renderTypeSel(); $('typeFind').focus(); };
+      opts.appendChild(o);
+    }
+  }
+  if (!opts.children.length) opts.innerHTML = '<div class="empty">' + (q ? 'Ничего не найдено.' : 'Нет доступных типов.') + '</div>';
+}
+
+function renderTypeSel() {
+  // drop any selected type whose category is no longer chosen
+  const catIds = selectedCatIds();
+  for (const k of [...sel.types]) {
+    const t = LOOKUPS.types.find(x => x.key === k);
+    if (!t || !catIds.has(t.category_id)) sel.types.delete(k);
+  }
+  // render tag tokens
+  const tok = $('typeTokens'); tok.innerHTML = '';
+  for (const k of sel.types) {
+    const t = LOOKUPS.types.find(x => x.key === k);
+    const span = document.createElement('span'); span.className = 'token';
+    span.textContent = t?.name || k;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×';
+    x.onclick = (e) => { e.stopPropagation(); sel.types.delete(k); renderTypeSel(); };
+    span.appendChild(x);
+    tok.appendChild(span);
+  }
+  $('typePlace').textContent = sel.cats.size ? '+ выберите тип' : 'сначала выберите категорию';
+  $('typePlace').style.display = sel.types.size ? 'none' : 'inline';
+  // lock the Types picker until a category is chosen
+  const hasCat = sel.cats.size > 0;
+  $('typeSel').classList.toggle('disabled', !hasCat);
+  if (hasCat) $('typeWarn').classList.remove('show');
+  else closeTypeMenu();
+  renderTypeMenu();
+}
+
+function slugKey(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_Ѐ-ӿ]/g, '') || ('type_' + Date.now());
+}
+
+async function addTypeInline(name, catKey) {
+  const cat = catByKey.get(catKey);
+  if (!cat || !name) return;
+  const key = slugKey(name);
+  const { error } = await sb.from('types').upsert(
+    { category_id: cat.id, key, name }, { onConflict: 'category_id,key', ignoreDuplicates: false });
+  if (error) { showMsg('Ошибка добавления типа: ' + error.message, false); return; }
+  await loadLookups();          // refresh LOOKUPS.types with the new one
+  sel.types.add(key);           // auto-select it
+  $('typeFind').value = '';
+  renderTypeSel();              // re-renders tokens + menu
+  $('typeFind').focus();
+  showMsg('Тип «' + name + '» добавлен.', true);
+}
+
+async function loadLookups() {
+  const [cats, types, regs] = await Promise.all([
+    sb.from('categories').select('id,key,name').eq('active', true).order('name'),
+    sb.from('types').select('id,category_id,key,name').eq('active', true).order('name'),
+    sb.from('regions').select('key,name').eq('active', true).order('name'),
+  ]);
+  for (const r of [cats, types, regs]) if (r.error) throw new Error(r.error.message);
+  LOOKUPS = { categories: cats.data, types: types.data, regions: regs.data };
+  catById.clear(); catByKey.clear();
+  for (const c of cats.data) { catById.set(c.id, c); catByKey.set(c.key, c); }
+  renderCatSel();
+  renderRegSel();
+  renderTypeSel();
+}
+
+async function save() {
+  const name = $('name').value.trim();
+  const emails = readRows($('emails'));
+  const phones = $('hasPhone').checked ? readRows($('phones')) : [];
+  const wa = $('wa').value.trim() || null;
+  const needEmail = channel === 'email' || channel === 'both';
+  const needWa = channel === 'whatsapp' || channel === 'both';
+  if (!name) return showMsg('Укажите название компании.', false);
+  if (needEmail && !emails.length) return showMsg('Укажите хотя бы один email.', false);
+  if (needWa && !wa) return showMsg('Укажите номер WhatsApp.', false);
+  if (!sel.cats.size) return showMsg('Выберите хотя бы одну категорию.', false);
+
+  const bmin = ($('hasBmin').checked && $('bmin').value !== '') ? Number($('bmin').value) : null;
+  const bmax = ($('hasBmax').checked && $('bmax').value !== '') ? Number($('bmax').value) : null;
+  const qmin = ($('hasQmin').checked && $('qmin').value !== '') ? Number($('qmin').value) : null;
+  const qmax = ($('hasQmax').checked && $('qmax').value !== '') ? Number($('qmax').value) : null;
+
+  const row = {
+    name,
+    email: needEmail ? (emails[0] || null) : null,   // legacy column — keeps current fan-out working
+    emails: needEmail ? emails : [],
+    phone: phones,
+    whatsapp: needWa ? wa : null,
+    contact_channel: channel,
+    regions: [...sel.regions],
+    minimum_budget: bmin,
+    maximum_budget: bmax,
+    minimum_order_qty: qmin,
+    maximum_order_qty: qmax,
+    order_unit: (qmin !== null || qmax !== null) ? $('orderUnit').value : null,
+    category_keys: [...sel.cats],
+    type_keys: [...sel.types],
+    active: true,
+  };
+  $('save').disabled = true;
+  // ask the DB directly: does any entered email already exist? (email column OR emails array)
+  if (needEmail && emails.length) {
+    const orFilter = emails.map(e => e.trim()).filter(Boolean).flatMap(e => {
+      const ilk = e.toLowerCase().replace(/([%_])/g, '\\$1');   // escape ilike wildcards
+      return ['email.ilike.' + ilk, 'emails.cs.{' + e + '}'];   // case-insensitive col + array-contains
+    }).join(',');
+    const { data: dupRows, error: chkErr } = await sb
+      .from('suppliers').select('id,name').or(orFilter).limit(1);
+    if (chkErr) { $('save').disabled = false; return showMsg('Ошибка проверки базы: ' + chkErr.message, false); }
+    if (dupRows && dupRows.length) { $('save').disabled = false; return showMsg('Этот email уже в базе — «' + (dupRows[0].name || 'поставщик') + '» уже добавлен.', false); }
+  }
+
+  let { error } = await sb.from('suppliers').insert(row);
+  if (error && /order_qty|order_unit|whatsapp|contact_channel|could not find|column/i.test(error.message || '')) {
+    const base = { ...row };
+    delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.whatsapp; delete base.contact_channel;
+    ({ error } = await sb.from('suppliers').insert(base));
+  }
+  $('save').disabled = false;
+  if (error) return showMsg('Ошибка сохранения: ' + error.message, false);
+
+  showMsg('Поставщик «' + name + '» сохранён.', true);
+  // reset
+  $('name').value = '';
+  $('hasBmin').checked = false; setBudget('bmin');
+  $('hasBmax').checked = false; setBudget('bmax');
+  $('hasQmin').checked = false; setBudget('qmin');
+  $('hasQmax').checked = false; setBudget('qmax');
+  $('wa').value = ''; setChannel('email');
+  $('orderUnit').selectedIndex = 0;
+  $('emails').innerHTML = ''; repeatRow($('emails'), 'email', 'sales@company.com');
+  $('phones').innerHTML = ''; repeatRow($('phones'), 'text', '+7 ...');
+  $('hasPhone').checked = false; setPhoneEnabled(false);
+  sel.cats.clear(); sel.types.clear(); sel.regions.clear();
+  renderCatSel();
+  renderRegSel();
+  renderTypeSel();
+  // reset the analyzer panel
+  $('catalogUrl').value = ''; if ($('catalogPdf')) $('catalogPdf').value = '';
+  $('analyzeProposed').innerHTML = ''; setAnStatus('', '');
+}
+
+// ---- Catalogue analyzer: send link/PDF to n8n, pre-fill tags from AI ----
+function setAnStatus(text, cls) {
+  const s = $('analyzeStatus'); s.textContent = text; s.className = 'anstatus' + (cls ? ' ' + cls : '');
+}
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(',')[1]);   // strip data: prefix
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function analyze() {
+  if (!sel.cats.size) { setAnStatus('Сначала выберите категорию выше — анализ ищет типы внутри неё.', 'err'); return; }
+  const url = $('catalogUrl').value.trim();
+  const file = $('catalogPdf').files[0];
+  if (!url && !file) { setAnStatus('Укажите ссылку или выберите PDF.', 'err'); return; }
+
+  const payload = file ? { mode: 'pdf', filename: file.name } : { mode: 'url', url };
+  payload.category_keys = [...sel.cats];
+  if (file) {
+    if (file.size > 10 * 1024 * 1024) { setAnStatus('PDF слишком большой (макс. 10 МБ).', 'err'); return; }
+    payload.pdf_base64 = await fileToBase64(file);
+  }
+
+  $('analyzeBtn').disabled = true;
+  setAnStatus('Анализирую каталог… это может занять 1–2 минуты.', 'busy');
+  try {
+    const r = await fetch(ANALYZE_WEBHOOK_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    await applyAnalysis(await r.json());
+  } catch (e) {
+    setAnStatus('Ошибка анализа: ' + e.message, 'err');
+  } finally {
+    $('analyzeBtn').disabled = false;
+  }
+}
+
+async function applyAnalysis(j) {
+  if (!j || j.ok === false) { setAnStatus((j && j.error) || 'Не удалось распознать каталог.', 'err'); $('analyzeProposed').innerHTML = ''; return; }
+  // pending types are created server-side as inactive — refresh lookups so matched ACTIVE keys are known
+  await loadLookups().catch(() => {});
+  for (const k of (j.category_keys || [])) if (catByKey.has(k)) sel.cats.add(k);
+  for (const k of (j.type_keys || [])) {
+    const t = LOOKUPS.types.find(x => x.key === k);
+    if (t) { const c = catById.get(t.category_id); if (c) sel.cats.add(c.key); }
+  }
+  renderCatSel();
+  for (const k of (j.type_keys || [])) if (LOOKUPS.types.some(x => x.key === k)) sel.types.add(k);
+  renderTypeSel();
+  $('analyzeProposed').innerHTML = '';
+  setAnStatus('Готово: применено типов ' + sel.types.size +
+    (j.pending_count ? ' · новых на проверку администратору: ' + j.pending_count : '') +
+    '. Проверьте и при необходимости поправьте.', 'ok');
+}
+
+(function init() {
+  repeatRow($('emails'), 'email', 'sales@company.com');
+  repeatRow($('phones'), 'text', '+7 ...');
+  $('addEmail').onclick = () => repeatRow($('emails'), 'email', 'sales@company.com');
+  $('addPhone').onclick = () => repeatRow($('phones'), 'text', '+7 ...');
+  $('hasPhone').onchange = () => setPhoneEnabled($('hasPhone').checked);
+  setPhoneEnabled(false);   // phone off by default — user turns it on if needed
+  $('hasBmin').onchange = () => setBudget('bmin');
+  $('hasBmax').onchange = () => setBudget('bmax');
+  $('hasQmin').onchange = () => setBudget('qmin');
+  $('hasQmax').onchange = () => setBudget('qmax');
+  document.querySelectorAll('#channelToggle .seg3-opt').forEach(o => { o.onclick = () => setChannel(o.dataset.ch); });
+  setChannel('email');
+  $('analyzeBtn').onclick = analyze;
+  $('save').onclick = save;
+  $('catSel').onclick  = () => { $('catMenu').classList.contains('open')  ? closeCatMenu()  : openCatMenu(); };
+  $('typeSel').onclick = () => {
+    if (!sel.cats.size) { $('typeWarn').classList.add('show'); return; }
+    $('typeMenu').classList.contains('open') ? closeTypeMenu() : openTypeMenu();
+  };
+  $('typeMenu').onclick = (e) => e.stopPropagation();   // clicks inside menu (search/options) don't toggle the box
+  $('typeFind').oninput = renderTypeMenu;
+  $('regSel').onclick = () => { $('regMenu').classList.contains('open') ? closeRegMenu() : openRegMenu(); };
+  document.addEventListener('click', (e) => {
+    if (!$('catSel').contains(e.target))  closeCatMenu();
+    if (!$('typeSel').contains(e.target)) closeTypeMenu();
+    if (!$('regSel').contains(e.target))  closeRegMenu();
+  });
+
+  const KEY = (SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'PASTE_YOUR_ANON_KEY_HERE')
+    ? SUPABASE_ANON_KEY : (localStorage.getItem('zc_anon_key') || '');
+  if (!KEY) {
+    const w = $('cfgwarn'); w.style.display = 'block';
+    w.innerHTML = 'Вставьте Supabase <b>anon</b> key (Project Settings → API → anon public):<br>'
+      + '<input type="text" id="keyin" placeholder="eyJhbGciOi…" style="width:68%;margin-top:8px;padding:7px 9px;border:1px solid #d9d6cc;border-radius:6px;font-size:13px">'
+      + ' <button class="addbtn" id="keysave" style="font-weight:bold;font-size:13px">сохранить</button>';
+    $('keysave').onclick = () => { const v = $('keyin').value.trim(); if (v) { localStorage.setItem('zc_anon_key', v); location.reload(); } };
+    return;
+  }
+  if (typeof supabase === 'undefined' || !supabase.createClient) {
+    showMsg('Библиотека Supabase не загрузилась (CDN заблокирован). Откройте файл в обычном браузере, а не в превью.', false);
+    return;
+  }
+  try { sb = supabase.createClient(SUPABASE_URL, KEY); }
+  catch (e) { showMsg('Ошибка инициализации: ' + e.message, false); return; }
+  loadLookups().catch(e => showMsg('Не удалось загрузить справочники: ' + e.message + ' — проверьте, что SQL-схема выполнена и anon key верный.', false));
+})();
+</script>
+</body></html>
