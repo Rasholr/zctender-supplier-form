@@ -63,6 +63,16 @@
   .proposed { display:flex; flex-wrap:wrap; gap:6px; }
   .pchip { font-size:12.5px; padding:5px 11px; border:1px dashed var(--green); border-radius:16px; cursor:pointer; background:#fff; color:var(--green-dk); }
   .pchip:hover { background:#E6F2EA; }
+  .anfield { font-size:12px; font-weight:bold; color:var(--green-dk); margin:10px 0 5px; }
+  .ansep { display:flex; align-items:center; text-align:center; color:var(--mut); font-size:12px; margin:12px 0; }
+  .ansep::before, .ansep::after { content:""; flex:1; border-top:1px solid var(--bd); }
+  .ansep span { padding:0 10px; }
+  .pdfdrop { display:block; border:1.5px dashed var(--green); border-radius:8px; background:#fff; padding:16px; text-align:center; cursor:pointer; font-size:13.5px; color:var(--green-dk); }
+  .pdfdrop.dragover { background:#E6F2EA; border-color:var(--green-dk); }
+  .pdfdrop.has-file { border-style:solid; background:#EAF6EE; }
+  .anbtn { margin-top:14px; width:100%; padding:11px; font-size:14px; font-weight:bold; color:var(--green-dk); background:#fff; border:1.5px solid var(--green); border-radius:8px; cursor:pointer; }
+  .anbtn:hover { background:#E6F2EA; }
+  .anbtn:disabled { color:#9cc3ab; border-color:#9cc3ab; cursor:default; }
   input:disabled, select:disabled { background:#f5f3ee; color:#a9a79f; cursor:not-allowed; }
   .addbtn:disabled { color:#a9a79f; cursor:not-allowed; }
   .twocol { display:flex; gap:12px; }
@@ -167,12 +177,21 @@
   </div>
 
   <div class="analyzer">
-    <div class="ahead">Автозаполнение из каталога <span class="hint">сначала выберите категорию — ИИ найдёт типы по сайту или PDF</span></div>
+    <div class="ahead">Автозаполнение из каталога <span class="hint">выберите категорию — ИИ найдёт типы по сайту или PDF</span></div>
+
+    <div class="anfield">Ссылка на каталог</div>
     <input type="text" id="catalogUrl" placeholder="https://сайт-поставщика.kz/catalog">
-    <div class="row" style="margin-top:8px">
-      <input type="file" id="catalogPdf" accept="application/pdf" style="flex:1">
-      <button class="addbtn" id="analyzeBtn" style="white-space:nowrap; font-weight:bold">Анализировать</button>
-    </div>
+
+    <div class="ansep"><span>или</span></div>
+
+    <div class="anfield">PDF каталога</div>
+    <label id="pdfDrop" class="pdfdrop">
+      <input type="file" id="catalogPdf" accept="application/pdf" hidden>
+      📄 Нажмите, чтобы выбрать PDF <span class="hint">или перетащите файл сюда</span>
+    </label>
+    <div id="pdfSelected" style="display:none; font-size:12.5px; margin-top:6px"></div>
+
+    <button class="anbtn" id="analyzeBtn">Анализировать каталог</button>
     <div id="analyzeStatus" class="anstatus"></div>
     <div id="analyzeProposed"></div>
   </div>
@@ -602,7 +621,7 @@ function resetForm() {
   renderCatSel();
   renderRegSel();
   renderTypeSel();
-  $('catalogUrl').value = ''; if ($('catalogPdf')) $('catalogPdf').value = '';
+  $('catalogUrl').value = ''; if ($('catalogPdf')) { $('catalogPdf').value = ''; updatePdfDrop(); }
   $('analyzeProposed').innerHTML = ''; setAnStatus('', '');
 }
 
@@ -618,6 +637,21 @@ function fileToBase64(file) {
     r.readAsDataURL(file);
   });
 }
+
+function updatePdfDrop() {
+  const f = $('catalogPdf').files[0];
+  const box = $('pdfSelected');
+  if (f) {
+    box.style.display = '';
+    box.innerHTML = '📄 выбран: <b>' + esc(f.name) + '</b> &nbsp;<a href="#" id="pdfClear" style="color:#791F1F;font-weight:bold">убрать</a>';
+    $('pdfClear').onclick = (e) => { e.preventDefault(); clearPdf(); };
+    $('pdfDrop').classList.add('has-file');
+  } else {
+    box.style.display = 'none'; box.innerHTML = '';
+    $('pdfDrop').classList.remove('has-file');
+  }
+}
+function clearPdf() { $('catalogPdf').value = ''; updatePdfDrop(); }
 
 async function analyze() {
   if (!sel.cats.size) { setAnStatus('Сначала выберите категорию выше — анализ ищет типы внутри неё.', 'err'); return; }
@@ -848,6 +882,16 @@ function closeEditModal() {
   document.querySelectorAll('#channelToggle .seg3-opt').forEach(o => { o.onclick = () => setChannel(o.dataset.ch); });
   setChannel('email');
   $('analyzeBtn').onclick = analyze;
+  $('catalogPdf').onchange = updatePdfDrop;
+  const pdfDrop = $('pdfDrop');
+  ['dragover', 'dragenter'].forEach(ev => pdfDrop.addEventListener(ev, e => { e.preventDefault(); pdfDrop.classList.add('dragover'); }));
+  ['dragleave', 'dragend'].forEach(ev => pdfDrop.addEventListener(ev, e => { e.preventDefault(); pdfDrop.classList.remove('dragover'); }));
+  pdfDrop.addEventListener('drop', e => {
+    e.preventDefault(); pdfDrop.classList.remove('dragover');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) { $('catalogPdf').files = e.dataTransfer.files; updatePdfDrop(); }
+    else if (f) setAnStatus('Можно загрузить только PDF.', 'err');
+  });
   $('save').onclick = save;
   document.querySelectorAll('#tabs .tab').forEach(t => { t.onclick = () => showTab(t.dataset.tab); });
   $('liBtn').onclick = signIn;
