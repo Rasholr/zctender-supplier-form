@@ -231,30 +231,28 @@
     </div>
   </div>
 
-  <label>Объём заказа <span class="hint">мин./макс. количество — для оптовиков и небольших поставщиков</span></label>
-  <select id="orderUnit" style="width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
-    <option value="метр">метр (м)</option>
-    <option value="километр">километр (км)</option>
-    <option value="штука">штука (шт)</option>
-    <option value="бухта">бухта</option>
-    <option value="рулон">рулон</option>
-    <option value="тонна">тонна (т)</option>
-    <option value="комплект">комплект</option>
-  </select>
-  <div class="twocol">
-    <div>
-      <div class="lblrow">
-        <label style="margin:12px 0 6px">Мин. заказ</label>
-        <label class="switch"><input type="checkbox" id="hasQmin"><span class="track"></span></label>
+  <div class="lblrow">
+    <label style="margin:16px 0 6px">Объём заказа <span class="hint" id="orderHint">не указан</span></label>
+    <label class="switch"><input type="checkbox" id="hasOrder"><span class="track"></span></label>
+  </div>
+  <div id="orderWrap" style="display:none">
+    <label style="margin:6px 0 6px">Единицы измерения <span class="hint">как считает поставщик — можно несколько</span></label>
+    <div id="unitChips" class="chips"></div>
+    <div class="twocol" style="margin-top:12px">
+      <div>
+        <div class="lblrow">
+          <label style="margin:6px 0 6px">Мин. заказ</label>
+          <label class="switch"><input type="checkbox" id="hasQmin"><span class="track"></span></label>
+        </div>
+        <input type="number" id="qmin" placeholder="напр. 1000" disabled>
       </div>
-      <input type="number" id="qmin" placeholder="напр. 1000" disabled>
-    </div>
-    <div>
-      <div class="lblrow">
-        <label style="margin:12px 0 6px">Макс. заказ</label>
-        <label class="switch"><input type="checkbox" id="hasQmax"><span class="track"></span></label>
+      <div>
+        <div class="lblrow">
+          <label style="margin:6px 0 6px">Макс. заказ</label>
+          <label class="switch"><input type="checkbox" id="hasQmax"><span class="track"></span></label>
+        </div>
+        <input type="number" id="qmax" placeholder="напр. 100000" disabled>
       </div>
-      <input type="number" id="qmax" placeholder="напр. 100000" disabled>
     </div>
   </div>
 
@@ -298,7 +296,7 @@ const ADMIN_EMAIL = 'integran.sales@gmail.com';  // login uses this fixed email 
 const $ = (id) => document.getElementById(id);
 let sb = null;
 let LOOKUPS = { categories: [], types: [], regions: [] };
-const sel = { cats: new Set(), types: new Set(), regions: new Set() };
+const sel = { cats: new Set(), types: new Set(), regions: new Set(), units: new Set() };
 const catById = new Map();  // uuid -> {key,name}
 const catByKey = new Map(); // key  -> {id,name}
 
@@ -340,6 +338,25 @@ function setChannel(ch) {
   $('seg3Thumb').style.left = 'calc(' + idx + ' * ((100% - 8px) / 3) + 4px)';
   $('emailWrap').style.display = (ch === 'email' || ch === 'both') ? '' : 'none';
   $('waWrap').style.display    = (ch === 'whatsapp' || ch === 'both') ? '' : 'none';
+}
+
+const ORDER_UNITS = ['метр', 'километр', 'штука', 'бухта', 'рулон', 'тонна', 'комплект'];
+function renderUnitChips() {
+  const box = $('unitChips'); if (!box) return; box.innerHTML = '';
+  for (const u of ORDER_UNITS) {
+    const c = document.createElement('div');
+    c.className = 'chip' + (sel.units.has(u) ? ' sel' : '');
+    c.textContent = u;
+    c.onclick = () => {
+      if (sel.units.has(u)) { sel.units.delete(u); c.classList.remove('sel'); }
+      else { sel.units.add(u); c.classList.add('sel'); }
+    };
+    box.appendChild(c);
+  }
+}
+function setOrderEnabled(on) {
+  $('orderWrap').style.display = on ? 'block' : 'none';
+  $('orderHint').textContent = on ? 'единицы и мин./макс.' : 'не указан';
 }
 
 function renderChips(box, items, set) {
@@ -550,8 +567,10 @@ async function save() {
 
   const bmin = ($('hasBmin').checked && $('bmin').value !== '') ? Number($('bmin').value) : null;
   const bmax = ($('hasBmax').checked && $('bmax').value !== '') ? Number($('bmax').value) : null;
-  const qmin = ($('hasQmin').checked && $('qmin').value !== '') ? Number($('qmin').value) : null;
-  const qmax = ($('hasQmax').checked && $('qmax').value !== '') ? Number($('qmax').value) : null;
+  const orderOn = $('hasOrder').checked;
+  const orderUnits = orderOn ? [...sel.units] : [];
+  const qmin = (orderOn && $('hasQmin').checked && $('qmin').value !== '') ? Number($('qmin').value) : null;
+  const qmax = (orderOn && $('hasQmax').checked && $('qmax').value !== '') ? Number($('qmax').value) : null;
 
   const row = {
     name,
@@ -565,7 +584,8 @@ async function save() {
     maximum_budget: bmax,
     minimum_order_qty: qmin,
     maximum_order_qty: qmax,
-    order_unit: (qmin !== null || qmax !== null) ? $('orderUnit').value : null,
+    order_units: orderUnits,
+    order_unit: orderUnits[0] || null,   // legacy single-unit column the workflow still reads
     category_keys: [...sel.cats],
     type_keys: [...sel.types],
     active: true,
@@ -576,7 +596,7 @@ async function save() {
     let { error } = await sb.from('suppliers').update(payload).eq('id', editingId);
     if (error && /order_qty|order_unit|whatsapp|contact_channel|could not find|column/i.test(error.message || '')) {
       const base = { ...payload };
-      delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.whatsapp; delete base.contact_channel;
+      delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.whatsapp; delete base.contact_channel;
       ({ error } = await sb.from('suppliers').update(base).eq('id', editingId));
     }
     $('save').disabled = false;
@@ -596,7 +616,7 @@ async function save() {
   let { error } = await sb.from('suppliers').insert(row);
   if (error && /order_qty|order_unit|whatsapp|contact_channel|could not find|column/i.test(error.message || '')) {
     const base = { ...row };
-    delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.whatsapp; delete base.contact_channel;
+    delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.whatsapp; delete base.contact_channel;
     ({ error } = await sb.from('suppliers').insert(base));
   }
   $('save').disabled = false;
@@ -613,7 +633,8 @@ function resetForm() {
   $('hasQmin').checked = false; setBudget('qmin');
   $('hasQmax').checked = false; setBudget('qmax');
   $('wa').value = ''; setChannel('email');
-  $('orderUnit').selectedIndex = 0;
+  sel.units.clear(); renderUnitChips();
+  $('hasOrder').checked = false; setOrderEnabled(false);
   $('emails').innerHTML = ''; repeatRow($('emails'), 'email', 'sales@company.com');
   $('phones').innerHTML = ''; repeatRow($('phones'), 'text', '+7 ...');
   $('hasPhone').checked = false; setPhoneEnabled(false);
@@ -838,8 +859,11 @@ function editSupplier(s) {
   if (ph.length) { $('hasPhone').checked = true; setPhoneEnabled(true); $('phones').innerHTML = ''; ph.forEach(v => rowWithValue($('phones'), 'text', '+7 ...', v)); }
   else { $('hasPhone').checked = false; setPhoneEnabled(false); $('phones').innerHTML = ''; repeatRow($('phones'), 'text', '+7 ...'); }
   setNumToggle('bmin', s.minimum_budget); setNumToggle('bmax', s.maximum_budget);
+  const _units = (s.order_units && s.order_units.length) ? s.order_units : (s.order_unit ? [s.order_unit] : []);
+  const _orderOn = _units.length > 0 || s.minimum_order_qty != null || s.maximum_order_qty != null;
+  $('hasOrder').checked = _orderOn; setOrderEnabled(_orderOn);
+  sel.units.clear(); _units.forEach(u => sel.units.add(u)); renderUnitChips();
   setNumToggle('qmin', s.minimum_order_qty); setNumToggle('qmax', s.maximum_order_qty);
-  if (s.order_unit && [...$('orderUnit').options].some(o => o.value === s.order_unit)) $('orderUnit').value = s.order_unit;
   sel.cats.clear();    (s.category_keys || []).forEach(k => sel.cats.add(k));
   sel.types.clear();   (s.type_keys || []).forEach(k => sel.types.add(k));
   sel.regions.clear(); (s.regions || []).forEach(k => sel.regions.add(k));
@@ -879,6 +903,9 @@ function closeEditModal() {
   $('hasBmax').onchange = () => setBudget('bmax');
   $('hasQmin').onchange = () => setBudget('qmin');
   $('hasQmax').onchange = () => setBudget('qmax');
+  $('hasOrder').onchange = () => setOrderEnabled($('hasOrder').checked);
+  setOrderEnabled(false);
+  renderUnitChips();
   document.querySelectorAll('#channelToggle .seg3-opt').forEach(o => { o.onclick = () => setChannel(o.dataset.ch); });
   setChannel('email');
   $('analyzeBtn').onclick = analyze;
