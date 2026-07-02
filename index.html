@@ -1029,6 +1029,19 @@ function rmMatch(input, outRows, supRows) {
     if (top._s > 0 && (top._s - (second ? second._s : 0)) >= 0.2) return { method: 'item_match', conf: 'средняя — совпадение по товару', match: top, supplier, supMethod, ranked };
     return { method: 'ambiguous', conf: '', match: null, supplier, supMethod, ranked };
   }
+  // fallback: sender leads nowhere (random/unknown address) -> text-match against ALL RFQs in the window
+  const all = new Map();
+  for (const c of outRows) {
+    if (!c.rfq_code) continue;
+    const p = rmParseSub(c.subject) || { product: '' };
+    if (!all.has(c.rfq_code)) all.set(c.rfq_code, { rfq_code: c.rfq_code, reference_code: c.reference_code || '', product: p.product, sent_at: c.created_at || '', sent_to: c.supplier_email || '' });
+  }
+  const ranked = [...all.values()].map(x => ({ ...x, _s: rmScore(x.product, hay) })).filter(x => x._s > 0).sort((a, b) => b._s - a._s);
+  if (ranked.length) {
+    const top = ranked[0], second = ranked[1];
+    if (top._s >= 0.5 && (top._s - (second ? second._s : 0)) >= 0.2) return { method: 'text_only_match', conf: 'средняя — отправитель неизвестен, найдено по тексту товара', match: top, supplier, supMethod, ranked };
+    return { method: 'text_only', conf: '', match: null, supplier, supMethod, ranked };
+  }
   return { method: 'unmatched', conf: '', match: null, supplier, supMethod, ranked: [] };
 }
 
@@ -1108,13 +1121,20 @@ async function runManualMatch() {
     if (sup.error) throw new Error(sup.error.message);
     const res = rmMatch({ sender, text }, outb.data || [], sup.data || []);
     const supLine = res.supplier ? '<div class="smeta" style="margin:0 0 8px">Поставщик: <b>' + esc(res.supplier.name || '') + '</b> (' + esc(res.supMethod) + ')</div>' : '<div class="smeta" style="margin:0 0 8px">Поставщик не найден в базе по этому email.</div>';
-    if (res.match && res.method !== 'ambiguous') {
+    if (res.match && res.method !== 'ambiguous' && res.method !== 'text_only') {
       box.innerHTML = supLine + rmCard(res.match, res.conf, true);
     } else if (res.method === 'ambiguous') {
       box.innerHTML = supLine + '<div class="review" style="margin:0 0 8px">Однозначного совпадения нет — возможные варианты:</div>'
         + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по товару: ' + Math.round(x._s * 100) + '%', false)).join('');
+    } else if (res.method === 'text_only') {
+      box.innerHTML = supLine + '<div class="review" style="margin:0 0 8px">Этому отправителю запросы не отправлялись — но по тексту похожи эти (смотрите, кому отправлено):</div>'
+        + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по товару: ' + Math.round(x._s * 100) + '%', false)).join('');
     } else {
-      box.innerHTML = supLine + '<div class="review">Не нашёл запросов этому поставщику за ' + RM_DAYS + ' дней до указанной даты. Проверьте email и дату.</div>';
+      box.innerHTML = supLine + '<div class="review">'
+        + (res.supplier
+          ? 'Не нашёл запросов этому поставщику за ' + RM_DAYS + ' дней до указанной даты. Проверьте email и дату.'
+          : 'Не нашёл совпадений: отправитель не в базе, и текст не совпал ни с одним запросом за ' + RM_DAYS + ' дней. Проверьте дату или вставьте больше текста.')
+        + '</div>';
     }
   } catch (e) {
     box.innerHTML = '<div class="review">Ошибка: ' + esc(e.message) + '</div>';
