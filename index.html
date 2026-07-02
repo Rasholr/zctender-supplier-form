@@ -312,7 +312,7 @@
             <div class="chip" data-off="1">Вчера</div>
             <div class="chip" data-off="2">Позавчера</div>
           </div>
-          <input type="date" id="rmDate" style="flex:1; min-width:150px; padding:7px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+          <input type="text" id="rmDate" placeholder="дд.мм.гггг" inputmode="numeric" maxlength="10" style="flex:1; min-width:120px; padding:7px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
         </div>
         <div class="anfield">Текст письма / прайса</div>
         <textarea id="rmText" rows="5" placeholder="Вставьте текст письма или прайс-листа…" style="font-family:inherit; font-size:13.5px"></textarea>
@@ -1089,9 +1089,15 @@ function rmPdfSelUpd() {
   } else { box.style.display = 'none'; box.innerHTML = ''; $('rmDrop').classList.remove('has-file'); }
 }
 
-function rmLocalDateStr(offsetDays) {
+function rmLocalDateStr(offsetDays) {   // dd.mm.yyyy for display
   const d = new Date(); d.setDate(d.getDate() - (offsetDays || 0));
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+}
+function rmParseDate(s) {               // accepts dd.mm.yyyy / dd/mm/yyyy / dd-mm-yyyy
+  const m = String(s || '').trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (!m) return null;
+  const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 23, 59, 59);
+  return (d.getDate() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1) ? d : null;
 }
 function rmSyncDateChips() {
   const v = $('rmDate').value;
@@ -1112,12 +1118,14 @@ function rmCard(m, conf, strong) {
 
 async function runManualMatch() {
   const sender = $('rmEmail').value.trim().toLowerCase();
-  const dateStr = $('rmDate').value;
+  const dateStr = $('rmDate').value.trim();
   let text = $('rmText').value || '';
   const f = $('rmPdf').files[0];
   const box = $('rmResult');
   if (!sender) return showMsg('Укажите email отправителя.', false);
   if (!text.trim() && !f) return showMsg('Вставьте текст письма или выберите PDF.', false);
+  const recvParsed = dateStr ? rmParseDate(dateStr) : new Date();
+  if (!recvParsed) return showMsg('Дата в формате дд.мм.гггг, например 02.07.2026.', false);
   $('rmGo').disabled = true;
   box.innerHTML = '<div class="smeta">Ищу…</div>';
   try {
@@ -1126,7 +1134,7 @@ async function runManualMatch() {
       try { text += '\n' + await rmPdfToText(f); }
       catch (e) { box.innerHTML = '<div class="review">PDF не читается (' + esc(e.message) + ') — вставьте текст вручную.</div>'; $('rmGo').disabled = false; return; }
     }
-    const recv = dateStr ? new Date(dateStr + 'T23:59:59') : new Date();
+    const recv = recvParsed;
     const since = new Date(recv.getTime() - RM_DAYS * 24 * 3600 * 1000).toISOString();
     const until = new Date(recv.getTime() + 24 * 3600 * 1000).toISOString();
     const [outb, sup] = await Promise.all([
@@ -1290,7 +1298,14 @@ function closeEditModal() {
   document.querySelectorAll('#rmDateChips .chip').forEach(c => {
     c.onclick = () => { $('rmDate').value = rmLocalDateStr(Number(c.dataset.off)); rmSyncDateChips(); };
   });
-  $('rmDate').onchange = rmSyncDateChips;
+  $('rmDate').oninput = () => {
+    const el = $('rmDate');
+    const dg = el.value.replace(/\D/g, '').slice(0, 8);   // digits only -> auto-insert dots: дд.мм.гггг
+    el.value = dg.length > 4 ? dg.slice(0, 2) + '.' + dg.slice(2, 4) + '.' + dg.slice(4)
+             : dg.length > 2 ? dg.slice(0, 2) + '.' + dg.slice(2)
+             : dg;
+    rmSyncDateChips();
+  };
   $('rmDate').value = rmLocalDateStr(0); rmSyncDateChips();   // default: today, chip highlighted
   $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
   $('modalClose').onclick = closeEditModal;
