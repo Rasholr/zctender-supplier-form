@@ -982,16 +982,19 @@ function rmParseSub(s) {
   const m = String(s || '').match(/Запрос\s+(ZC\d+)\s*—\s*(.+)/i);
   return m ? { code: m[1], product: m[2].trim() } : null;
 }
-function rmScore(product, hay) {
-  const ts = [...new Set(String(product || '').toLowerCase().split(/[^0-9a-zа-яё.]+/i).filter(t => t.length >= 2))];
+function rmScore(needle, hay) {
+  const ts = [...new Set(String(needle || '').toLowerCase().split(/[^0-9a-zа-яё.]+/i).filter(t => t.length >= 2))];
   if (!ts.length) return 0;
   let hit = 0;
   for (const t of ts) if (hay.includes(t)) hit++;
-  return hit / ts.length;
+  return Math.min(1, hit / Math.min(ts.length, 12));   // cap the denominator so long specs don't dilute real hits
 }
 
 // pure matching logic — same tiers as the n8n Reply Matcher (zc code / single recent / item score)
-function rmMatch(input, outRows, supRows) {
+// lotText: optional { reference_code: full spec text } to score against, not just the subject product name
+function rmMatch(input, outRows, supRows, lotText) {
+  lotText = lotText || {};
+  const rmNeedle = x => (x.product || '') + ' ' + (lotText[x.reference_code] || '');
   const sender = String(input.sender || '').toLowerCase();
   const senderDom = sender.split('@')[1] || '';
   const hay = String(input.text || '').toLowerCase();
@@ -1024,7 +1027,7 @@ function rmMatch(input, outRows, supRows) {
   }
   if (list.length === 1) return { method: 'single_recent', conf: 'высокая — единственный запрос этому поставщику за период', match: list[0], supplier, supMethod, ranked: [] };
   if (list.length > 1) {
-    const ranked = list.map(x => ({ ...x, _s: rmScore(x.product, hay) })).sort((a, b) => b._s - a._s);
+    const ranked = list.map(x => ({ ...x, _s: rmScore(rmNeedle(x), hay) })).sort((a, b) => b._s - a._s);
     const top = ranked[0], second = ranked[1];
     if (top._s > 0 && (top._s - (second ? second._s : 0)) >= 0.2) return { method: 'item_match', conf: 'средняя — совпадение по товару', match: top, supplier, supMethod, ranked };
     return { method: 'ambiguous', conf: '', match: null, supplier, supMethod, ranked };
@@ -1036,7 +1039,7 @@ function rmMatch(input, outRows, supRows) {
     const p = rmParseSub(c.subject) || { product: '' };
     if (!all.has(c.rfq_code)) all.set(c.rfq_code, { rfq_code: c.rfq_code, reference_code: c.reference_code || '', product: p.product, sent_at: c.created_at || '', sent_to: c.supplier_email || '' });
   }
-  const ranked = [...all.values()].map(x => ({ ...x, _s: rmScore(x.product, hay) })).filter(x => x._s > 0).sort((a, b) => b._s - a._s);
+  const ranked = [...all.values()].map(x => ({ ...x, _s: rmScore(rmNeedle(x), hay) })).filter(x => x._s > 0).sort((a, b) => b._s - a._s);
   if (ranked.length) {
     const top = ranked[0], second = ranked[1];
     if (top._s >= 0.5 && (top._s - (second ? second._s : 0)) >= 0.2) return { method: 'text_only_match', conf: 'средняя — отправитель неизвестен, найдено по тексту товара', match: top, supplier, supMethod, ranked };
@@ -1088,7 +1091,7 @@ function rmCard(m, conf, strong) {
   return '<div class="scard" style="' + (strong ? 'border-color:var(--green);background:#EAF6EE' : '') + '">'
     + '<div class="snm">' + esc(m.rfq_code) + (m.product ? ' — ' + esc(m.product) : '') + '</div>'
     + '<div class="smeta">' + (m.reference_code ? 'Тендер: ' + esc(m.reference_code) + ' · ' : '') + (m.sent_at ? 'отправлен ' + rmDateStr(m.sent_at) : '') + (m.sent_to ? ' → ' + esc(m.sent_to) : '') + '</div>'
-    + (conf ? '<div class="smeta">Уверенность: ' + esc(conf) + '</div>' : '')
+    + (conf ? '<div class="smeta">' + esc(conf) + '</div>' : '')
     + '</div>';
 }
 
@@ -1119,18 +1122,35 @@ async function runManualMatch() {
     ]);
     if (outb.error) throw new Error(outb.error.message);
     if (sup.error) throw new Error(sup.error.message);
-    const res = rmMatch({ sender, text }, outb.data || [], sup.data || []);
+    // pull full tender specs so scoring sees характеристики, not just the subject product name
+    let lotText = {};
+    const refs = [...new Set((outb.data || []).map(o => o.reference_code).filter(Boolean))];
+    if (refs.length) {
+      const lots = await sb.from('tender_lots')
+        .select('reference_code,product_name,key_specifications,standards,components')
+        .in('reference_code', refs.slice(0, 200));
+      if (!lots.error) for (const l of (lots.data || [])) {
+        lotText[l.reference_code] = [l.product_name, (l.key_specifications || []).join(' '), (l.standards || []).join(' '), (l.components || []).join(' ')].filter(Boolean).join(' ');
+      }
+    }
+    const res = rmMatch({ sender, text }, outb.data || [], sup.data || [], lotText);
+    const letters = (text.match(/[0-9a-zа-яё]/gi) || []).length;
+    const tinyWarn = letters < 60 ? '<div class="review" style="margin:0 0 8px">Текста очень мало — если PDF отсканирован (картинка), вставьте текст вручную.</div>' : '';
     const supLine = res.supplier ? '<div class="smeta" style="margin:0 0 8px">Поставщик: <b>' + esc(res.supplier.name || '') + '</b> (' + esc(res.supMethod) + ')</div>' : '<div class="smeta" style="margin:0 0 8px">Поставщик не найден в базе по этому email.</div>';
     if (res.match && res.method !== 'ambiguous' && res.method !== 'text_only') {
-      box.innerHTML = supLine + rmCard(res.match, res.conf, true);
+      box.innerHTML = tinyWarn + supLine + rmCard(res.match, 'Уверенность: ' + res.conf, true);
     } else if (res.method === 'ambiguous') {
-      box.innerHTML = supLine + '<div class="review" style="margin:0 0 8px">Однозначного совпадения нет — возможные варианты:</div>'
-        + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по товару: ' + Math.round(x._s * 100) + '%', false)).join('');
+      const allZero = res.ranked.every(x => x._s === 0);
+      const head = allZero
+        ? 'Текст не совпал ни с одним запросом — выбирайте по дате и вложению:'
+        : 'Однозначного совпадения нет — возможные варианты:';
+      box.innerHTML = tinyWarn + supLine + '<div class="review" style="margin:0 0 8px">' + head + '</div>'
+        + res.ranked.slice(0, 3).map(x => rmCard(x, allZero ? '' : 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
     } else if (res.method === 'text_only') {
-      box.innerHTML = supLine + '<div class="review" style="margin:0 0 8px">Этому отправителю запросы не отправлялись — но по тексту похожи эти (смотрите, кому отправлено):</div>'
-        + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по товару: ' + Math.round(x._s * 100) + '%', false)).join('');
+      box.innerHTML = tinyWarn + supLine + '<div class="review" style="margin:0 0 8px">Этому отправителю запросы не отправлялись — но по тексту похожи эти (смотрите, кому отправлено):</div>'
+        + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
     } else {
-      box.innerHTML = supLine + '<div class="review">'
+      box.innerHTML = tinyWarn + supLine + '<div class="review">'
         + (res.supplier
           ? 'Не нашёл запросов этому поставщику за ' + RM_DAYS + ' дней до указанной даты. Проверьте email и дату.'
           : 'Не нашёл совпадений: отправитель не в базе, и текст не совпал ни с одним запросом за ' + RM_DAYS + ' дней. Проверьте дату или вставьте больше текста.')
