@@ -133,6 +133,7 @@
   <div id="tabs" class="tabs">
     <button type="button" class="tab active" data-tab="add">Добавить</button>
     <button type="button" class="tab" data-tab="list">Список / изменить</button>
+    <button type="button" class="tab" data-tab="replies">Ответы</button>
   </div>
 
   <div id="tabAdd">
@@ -276,13 +277,14 @@
   <button class="save" id="save">Сохранить поставщика</button>
   </div><!-- /tabAdd -->
 
+  <div id="loginBox" style="display:none">
+    <label>Вход для администратора <span class="hint">введите пароль</span></label>
+    <input type="password" id="liPass" placeholder="пароль" autocomplete="current-password">
+    <div id="liErr" class="review" style="display:none"></div>
+    <button class="save" id="liBtn" style="margin-top:12px">Войти</button>
+  </div>
+
   <div id="tabList" style="display:none">
-    <div id="loginBox">
-      <label>Вход для администратора <span class="hint">введите пароль</span></label>
-      <input type="password" id="liPass" placeholder="пароль" autocomplete="current-password">
-      <div id="liErr" class="review" style="display:none"></div>
-      <button class="save" id="liBtn" style="margin-top:12px">Войти</button>
-    </div>
     <div id="listBox" style="display:none">
       <div class="lblrow" style="margin-bottom:10px">
         <span class="smeta">Вы вошли как <b id="whoami"></b></span>
@@ -294,6 +296,20 @@
       <input type="text" id="sSearch" placeholder="Поиск: название, email, WhatsApp, тип…">
       <div class="smeta" style="margin:8px 0"><span id="sCount"></span></div>
       <div id="slistWrap" class="slist"></div>
+    </div>
+  </div>
+
+  <div id="tabReplies" style="display:none">
+    <div id="repliesBox" style="display:none">
+      <div class="lblrow" style="margin-bottom:10px">
+        <select id="rFilter" style="flex:1; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+          <option value="all">Все ответы</option>
+          <option value="unmatched">Только несопоставленные</option>
+        </select>
+        <button class="addbtn" id="rRefresh" style="font-weight:bold; margin-left:10px">Обновить</button>
+      </div>
+      <div class="smeta" style="margin:8px 0"><span id="rCount"></span></div>
+      <div id="rlistWrap" class="slist"></div>
     </div>
   </div>
 
@@ -746,20 +762,27 @@ async function applyAnalysis(j) {
 // ================= Tabs + admin management =================
 let allSuppliers = [];
 
+let currentTab = 'add';
 function showTab(name) {
+  currentTab = name;
   document.querySelectorAll('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-  $('tabAdd').style.display  = name === 'add'  ? '' : 'none';
-  $('tabList').style.display = name === 'list' ? '' : 'none';
-  if (name === 'list') refreshAuthUI();
+  $('tabAdd').style.display     = name === 'add'     ? '' : 'none';
+  $('tabList').style.display    = name === 'list'    ? '' : 'none';
+  $('tabReplies').style.display = name === 'replies' ? '' : 'none';
+  if (name === 'add') $('loginBox').style.display = 'none';
+  else refreshAuthUI();
 }
 
 async function refreshAuthUI() {
   if (!sb) return;
   const { data } = await sb.auth.getSession();
   const authed = !!(data && data.session);
-  $('loginBox').style.display = authed ? 'none' : '';
-  $('listBox').style.display  = authed ? '' : 'none';
-  if (authed) { $('whoami').textContent = data.session.user.email; loadSuppliers(); }
+  const gated = currentTab === 'list' || currentTab === 'replies';
+  $('loginBox').style.display   = (gated && !authed) ? '' : 'none';
+  $('listBox').style.display    = (authed && currentTab === 'list') ? '' : 'none';
+  $('repliesBox').style.display = (authed && currentTab === 'replies') ? '' : 'none';
+  if (authed && currentTab === 'list') { $('whoami').textContent = data.session.user.email; loadSuppliers(); }
+  if (authed && currentTab === 'replies') loadReplies();
 }
 
 async function signIn() {
@@ -854,6 +877,77 @@ async function removeSupplier(s) {
   if (error) return showMsg('Ошибка удаления: ' + error.message, false);
   allSuppliers = allSuppliers.filter(x => x.id !== s.id); renderSuppliers();
   showMsg('Поставщик удалён.', true);
+}
+
+// ================= Replies (Step 2: supplier answers) =================
+let allReplies = [], outboundRefs = [];
+
+async function loadReplies() {
+  $('rlistWrap').innerHTML = '<div class="smeta">Загрузка…</div>';
+  const [inb, outb] = await Promise.all([
+    sb.from('supplier_emails').select('*').eq('direction', 'inbound').order('created_at', { ascending: false }).limit(100),
+    sb.from('supplier_emails').select('rfq_code,reference_code,subject,supplier_email,created_at').eq('direction', 'outbound').order('created_at', { ascending: false }).limit(200),
+  ]);
+  if (inb.error) { $('rlistWrap').innerHTML = '<div class="review">Ошибка: ' + esc(inb.error.message) + '</div>'; return; }
+  allReplies = inb.data || [];
+  const seen = new Set();   // dedupe outbound by rfq_code (email+whatsapp rows share a code)
+  outboundRefs = (outb.data || []).filter(o => o.rfq_code && !seen.has(o.rfq_code) && seen.add(o.rfq_code));
+  renderReplies();
+}
+
+function fmtDT(d) {
+  const t = Date.parse(d); if (!isFinite(t)) return '';
+  const x = new Date(t); const p = n => String(n).padStart(2, '0');
+  return p(x.getDate()) + '.' + p(x.getMonth() + 1) + ' ' + p(x.getHours()) + ':' + p(x.getMinutes());
+}
+
+function renderReplies() {
+  const only = $('rFilter').value;
+  const list = allReplies.filter(r => only !== 'unmatched' || !r.rfq_code);
+  $('rCount').textContent = 'показано ' + list.length + ' из ' + allReplies.length;
+  const wrap = $('rlistWrap'); wrap.innerHTML = '';
+  if (!list.length) { wrap.innerHTML = '<div class="smeta">Пока нет ответов.</div>'; return; }
+  for (const r of list) wrap.appendChild(replyCard(r));
+}
+
+function replyCard(r) {
+  const div = document.createElement('div'); div.className = 'scard';
+  const matched = !!r.rfq_code;
+  const link = r.gmail_message_id ? ('https://mail.google.com/mail/?authuser=integran.sales@gmail.com#all/' + encodeURIComponent(r.gmail_message_id)) : '';
+  div.innerHTML =
+    '<div class="snm">' + esc(r.supplier_email || '—')
+      + '<span class="sbadge ' + (matched ? 'on' : 'off') + '">' + (matched ? esc(r.rfq_code) : 'не сопоставлено') + '</span></div>'
+    + '<div class="smeta">' + esc(r.subject || '(без темы)') + '</div>'
+    + '<div class="smeta">' + fmtDT(r.created_at) + (r.attachment_count ? ' · вложений: ' + r.attachment_count : '')
+      + (link ? ' · <a href="' + link + '" target="_blank" style="color:#185FA5">открыть письмо ↗</a>' : '') + '</div>';
+  const act = document.createElement('div'); act.className = 'sact';
+  const selEl = document.createElement('select');
+  selEl.style.cssText = 'flex:1;min-width:200px;padding:6px 8px;font-size:12.5px;border:1px solid var(--bd);border-radius:7px;background:#fff';
+  const opts = ['<option value="">— выбрать запрос —</option>'];
+  for (const o of outboundRefs) {
+    const prod = String(o.subject || '').replace(/^Запрос\s+ZC\d+\s*—\s*/i, '').slice(0, 60);
+    const label = o.rfq_code + ' — ' + prod + ' → ' + (o.supplier_email || '');
+    opts.push('<option value="' + esc(o.rfq_code) + '"' + (o.rfq_code === r.rfq_code ? ' selected' : '') + '>' + esc(label) + '</option>');
+  }
+  selEl.innerHTML = opts.join('');
+  const btn = document.createElement('button'); btn.className = 'sbtn edit';
+  btn.textContent = matched ? 'Изменить привязку' : 'Привязать';
+  btn.onclick = () => assignReply(r, selEl.value, btn);
+  act.append(selEl, btn); div.appendChild(act);
+  return div;
+}
+
+async function assignReply(r, code, btn) {
+  if (!code) return showMsg('Выберите запрос из списка.', false);
+  const ref = outboundRefs.find(o => o.rfq_code === code);
+  btn.disabled = true;
+  const { error } = await sb.from('supplier_emails')
+    .update({ rfq_code: code, reference_code: (ref && ref.reference_code) || null }).eq('id', r.id);
+  btn.disabled = false;
+  if (error) return showMsg('Ошибка привязки: ' + error.message, false);
+  r.rfq_code = code; r.reference_code = (ref && ref.reference_code) || null;
+  showMsg('Ответ привязан к ' + code + '.', true);
+  renderReplies();
 }
 
 function rowWithValue(container, type, placeholder, value) {
@@ -954,6 +1048,8 @@ function closeEditModal() {
   $('logoutBtn').onclick = signOut;
   $('sSearch').oninput = renderSuppliers;
   $('catFilter').onchange = renderSuppliers;
+  $('rFilter').onchange = renderReplies;
+  $('rRefresh').onclick = loadReplies;
   $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
   $('modalClose').onclick = closeEditModal;
   $('modalBackdrop').onclick = closeEditModal;
