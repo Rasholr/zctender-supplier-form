@@ -306,7 +306,14 @@
         <div class="anfield">Email отправителя</div>
         <input type="email" id="rmEmail" placeholder="sales@postavshik.kz">
         <div class="anfield">Дата получения</div>
-        <input type="date" id="rmDate" style="width:100%; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <div class="chips" id="rmDateChips">
+            <div class="chip" data-off="0">Сегодня</div>
+            <div class="chip" data-off="1">Вчера</div>
+            <div class="chip" data-off="2">Позавчера</div>
+          </div>
+          <input type="date" id="rmDate" style="flex:1; min-width:150px; padding:7px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+        </div>
         <div class="anfield">Текст письма / прайса</div>
         <textarea id="rmText" rows="5" placeholder="Вставьте текст письма или прайс-листа…" style="font-family:inherit; font-size:13.5px"></textarea>
         <div class="ansep"><span>и/или</span></div>
@@ -1082,6 +1089,14 @@ function rmPdfSelUpd() {
   } else { box.style.display = 'none'; box.innerHTML = ''; $('rmDrop').classList.remove('has-file'); }
 }
 
+function rmLocalDateStr(offsetDays) {
+  const d = new Date(); d.setDate(d.getDate() - (offsetDays || 0));
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function rmSyncDateChips() {
+  const v = $('rmDate').value;
+  document.querySelectorAll('#rmDateChips .chip').forEach(c => c.classList.toggle('sel', rmLocalDateStr(Number(c.dataset.off)) === v));
+}
 function rmDateStr(m) {
   const t = Date.parse(m); if (!isFinite(t)) return '';
   const x = new Date(t); const p = n => String(n).padStart(2, '0');
@@ -1272,7 +1287,11 @@ function closeEditModal() {
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) { $('rmPdf').files = e.dataTransfer.files; rmPdfSelUpd(); }
   });
-  { const d = new Date(); $('rmDate').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  document.querySelectorAll('#rmDateChips .chip').forEach(c => {
+    c.onclick = () => { $('rmDate').value = rmLocalDateStr(Number(c.dataset.off)); rmSyncDateChips(); };
+  });
+  $('rmDate').onchange = rmSyncDateChips;
+  $('rmDate').value = rmLocalDateStr(0); rmSyncDateChips();   // default: today, chip highlighted
   $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
   $('modalClose').onclick = closeEditModal;
   $('modalBackdrop').onclick = closeEditModal;
