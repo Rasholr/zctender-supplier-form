@@ -314,8 +314,8 @@
           </div>
           <input type="text" id="rmDate" placeholder="дд.мм.гггг" inputmode="numeric" maxlength="10" style="flex:1; min-width:120px; padding:7px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
         </div>
-        <div class="anfield">Текст письма / прайса</div>
-        <textarea id="rmText" rows="5" placeholder="Вставьте текст письма или прайс-листа…" style="font-family:inherit; font-size:13.5px"></textarea>
+        <div class="anfield">Текст письма / прайса <span class="hint">вставьте и ТЕМУ письма — в ней часто есть номер ZC, тогда совпадение точное</span></div>
+        <textarea id="rmText" rows="5" placeholder="Тема + текст письма или прайс-листа…" style="font-family:inherit; font-size:13.5px"></textarea>
         <div class="ansep"><span>и/или</span></div>
         <label id="rmDrop" class="pdfdrop">
           <input type="file" id="rmPdf" accept="application/pdf" hidden>
@@ -977,7 +977,7 @@ async function assignReply(r, code, btn) {
 
 // ---- Manual matcher: paste text/PDF + sender + date -> which RFQ/tender is it ----
 const RM_FREE = new Set(['gmail.com','mail.ru','yandex.ru','yandex.kz','inbox.ru','bk.ru','list.ru','outlook.com','hotmail.com','icloud.com']);
-const RM_DAYS = 10;   // lookback window before the received date
+const RM_DAYS = 14;   // lookback window before the received date (suppliers can answer a week+ later)
 
 function rmSupEmails(s) {
   const e = [];
@@ -1014,11 +1014,20 @@ function rmMatch(input, outRows, supRows, lotText) {
     for (const s of supRows) { if (rmSupEmails(s).some(e => e.split('@')[1] === senderDom)) { supplier = s; supMethod = 'домен компании'; break; } }
   }
 
-  const supMails = supplier ? rmSupEmails(supplier) : [sender];
+  // candidate net: RFQs to the supplier's registered emails, PLUS anything sent to the exact
+  // sender address or the same company domain — suppliers reply from mailboxes we never wrote to,
+  // and the registered list can lag behind what we actually sent to.
+  const supMails = supplier ? rmSupEmails(supplier) : [];
+  const candOk = (em) => {
+    em = String(em || '').toLowerCase();
+    if (!em) return false;
+    if (em === sender || supMails.includes(em)) return true;
+    return !!senderDom && !RM_FREE.has(senderDom) && (em.split('@')[1] === senderDom);
+  };
   const uniq = new Map();
   for (const c of outRows) {
     if (!c.rfq_code) continue;
-    if (!supMails.includes(String(c.supplier_email || '').toLowerCase())) continue;
+    if (!candOk(c.supplier_email)) continue;
     const p = rmParseSub(c.subject) || { product: '' };
     if (!uniq.has(c.rfq_code)) uniq.set(c.rfq_code, { rfq_code: c.rfq_code, reference_code: c.reference_code || '', product: p.product, sent_at: c.created_at || '', sent_to: c.supplier_email || '' });
   }
@@ -1168,10 +1177,10 @@ async function runManualMatch() {
         ? 'Текст не совпал ни с одним запросом — выбирайте по дате и вложению:'
         : 'Однозначного совпадения нет — возможные варианты:';
       box.innerHTML = tinyWarn + supLine + '<div class="review" style="margin:0 0 8px">' + head + '</div>'
-        + res.ranked.slice(0, 3).map(x => rmCard(x, allZero ? '' : 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
+        + res.ranked.slice(0, 5).map(x => rmCard(x, allZero ? '' : 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
     } else if (res.method === 'text_only') {
       box.innerHTML = tinyWarn + supLine + '<div class="review" style="margin:0 0 8px">Этому отправителю запросы не отправлялись — но по тексту похожи эти (смотрите, кому отправлено):</div>'
-        + res.ranked.slice(0, 3).map(x => rmCard(x, 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
+        + res.ranked.slice(0, 5).map(x => rmCard(x, 'совпадение по тексту: ' + Math.round(x._s * 100) + '%', false)).join('');
     } else {
       box.innerHTML = tinyWarn + supLine + '<div class="review">'
         + (res.supplier
