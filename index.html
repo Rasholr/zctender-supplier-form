@@ -1128,9 +1128,10 @@ function rmCard(m, conf, strong) {
 
 function rmRenderResult(box, res, letters) {
   const tinyWarn = letters < 60 ? '<div class="review" style="margin:0 0 8px">Текста очень мало — если файл отсканирован (картинка), вставьте текст вручную.</div>' : '';
-  const supLine = res.supplier
+  let supLine = res.supplier
     ? '<div class="smeta" style="margin:0 0 8px">Поставщик: <b>' + esc(res.supplier.name || '') + '</b> (' + esc(res.supMethod) + ')</div>'
     : '<div class="smeta" style="margin:0 0 8px">Поставщик не определён — поиск по содержимому и дате.</div>';
+  if (res.aiItems) supLine += '<div class="smeta" style="margin:0 0 8px">ИИ выделил из файла: <i>' + esc(res.aiItems) + '</i></div>';
   if (res.match && res.method !== 'ambiguous' && res.method !== 'text_only') {
     box.innerHTML = tinyWarn + supLine + rmCard(res.match, 'Уверенность: ' + res.conf, true);
   } else if (res.method === 'ambiguous') {
@@ -1184,6 +1185,7 @@ async function runManualMatch() {
         ranked: (j.ranked || []).map(x => ({ ...x, _s: (x.score || 0) / 100 })),
         supplier: j.supplier_name ? { name: j.supplier_name } : null,
         supMethod: j.supplier_method || '',
+        aiItems: (j.distilled || '').slice(0, 200),
       }, letters);
       $('rmGo').disabled = false;
       return;
