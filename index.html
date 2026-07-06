@@ -346,8 +346,10 @@ const catByKey = new Map(); // key  -> {id,name}
 let msgTimer = null;
 function showMsg(text, ok) {
   const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err';
+  m.style.cursor = 'pointer'; m.title = 'нажмите, чтобы закрыть';
+  m.onclick = () => { m.className = ''; };                            // click = dismiss now
   if (msgTimer) clearTimeout(msgTimer);
-  if (ok) msgTimer = setTimeout(() => { m.className = ''; }, 4000);  // success fades; errors stay
+  msgTimer = setTimeout(() => { m.className = ''; }, ok ? 4000 : 8000);  // success 4s, errors 8s
 }
 
 function repeatRow(container, type, placeholder) {
