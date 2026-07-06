@@ -253,24 +253,9 @@
     <label class="switch"><input type="checkbox" id="hasOrder"><span class="track"></span></label>
   </div>
   <div id="orderWrap" style="display:none">
-    <label style="margin:6px 0 6px">Единицы измерения <span class="hint">как считает поставщик — можно несколько</span></label>
-    <div id="unitChips" class="chips"></div>
-    <div class="twocol" style="margin-top:12px">
-      <div>
-        <div class="lblrow">
-          <label style="margin:6px 0 6px">Мин. заказ</label>
-          <label class="switch"><input type="checkbox" id="hasQmin"><span class="track"></span></label>
-        </div>
-        <input type="number" id="qmin" placeholder="напр. 1000" disabled>
-      </div>
-      <div>
-        <div class="lblrow">
-          <label style="margin:6px 0 6px">Макс. заказ</label>
-          <label class="switch"><input type="checkbox" id="hasQmax"><span class="track"></span></label>
-        </div>
-        <input type="number" id="qmax" placeholder="напр. 100000" disabled>
-      </div>
-    </div>
+    <label style="margin:6px 0 6px">Лимиты по единицам <span class="hint">мин/макс для каждой единицы — пустое поле = без ограничения</span></label>
+    <div id="olRows"></div>
+    <button class="addbtn" id="olAdd">+ добавить единицу</button>
   </div>
 
   <div id="editHint" class="review" style="display:none; margin-top:14px">
@@ -399,22 +384,33 @@ function setChannel(ch) {
 }
 
 const ORDER_UNITS = ['метр', 'километр', 'штука', 'бухта', 'рулон', 'тонна', 'комплект'];
-function renderUnitChips() {
-  const box = $('unitChips'); if (!box) return; box.innerHTML = '';
-  for (const u of ORDER_UNITS) {
-    const c = document.createElement('div');
-    c.className = 'chip' + (sel.units.has(u) ? ' sel' : '');
-    c.textContent = u;
-    c.onclick = () => {
-      if (sel.units.has(u)) { sel.units.delete(u); c.classList.remove('sel'); }
-      else { sel.units.add(u); c.classList.add('sel'); }
-    };
-    box.appendChild(c);
-  }
+function olAddRow(unit, min, max) {
+  const div = document.createElement('div'); div.className = 'row';
+  const opts = ORDER_UNITS.map(u => '<option value="' + u + '"' + (u === unit ? ' selected' : '') + '>' + u + '</option>').join('');
+  div.innerHTML = '<select style="flex:1.3; padding:8px 10px; font-size:13.5px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">' + opts + '</select>'
+    + '<input type="number" placeholder="мин" value="' + (min != null ? min : '') + '" style="flex:1">'
+    + '<input type="number" placeholder="макс" value="' + (max != null ? max : '') + '" style="flex:1">'
+    + '<button class="mini" title="удалить">&times;</button>';
+  div.querySelector('button').onclick = () => div.remove();
+  $('olRows').appendChild(div);
 }
+function olRead() {   // one entry per unit row; rows with no numbers are ignored
+  const out = [];
+  for (const r of $('olRows').children) {
+    const u = r.querySelector('select').value;
+    const nums = r.querySelectorAll('input');
+    const min = nums[0].value !== '' ? Number(nums[0].value) : null;
+    const max = nums[1].value !== '' ? Number(nums[1].value) : null;
+    if (min == null && max == null) continue;
+    out.push({ unit: u, min, max });
+  }
+  return out;
+}
+function olClear() { $('olRows').innerHTML = ''; }
 function setOrderEnabled(on) {
   $('orderWrap').style.display = on ? 'block' : 'none';
-  $('orderHint').textContent = on ? 'единицы и мин./макс.' : 'не указан';
+  $('orderHint').textContent = on ? 'мин/макс по единицам' : 'не указан';
+  if (on && !$('olRows').children.length) olAddRow();
 }
 function setBudgetEnabled(on) {
   $('budgetWrap').style.display = on ? 'block' : 'none';
@@ -632,9 +628,7 @@ async function save() {
   const bmin = (budgetOn && $('hasBmin').checked && $('bmin').value !== '') ? Number($('bmin').value) : null;
   const bmax = (budgetOn && $('hasBmax').checked && $('bmax').value !== '') ? Number($('bmax').value) : null;
   const orderOn = $('hasOrder').checked;
-  const orderUnits = orderOn ? [...sel.units] : [];
-  const qmin = (orderOn && $('hasQmin').checked && $('qmin').value !== '') ? Number($('qmin').value) : null;
-  const qmax = (orderOn && $('hasQmax').checked && $('qmax').value !== '') ? Number($('qmax').value) : null;
+  const orderLimits = orderOn ? olRead() : [];
 
   const row = {
     name,
@@ -647,10 +641,11 @@ async function save() {
     minimum_budget: bmin,
     maximum_budget: bmax,
     budget_currency: (bmin !== null || bmax !== null) ? budgetCurrency : null,
-    minimum_order_qty: qmin,
-    maximum_order_qty: qmax,
-    order_units: orderUnits,
-    order_unit: orderUnits[0] || null,   // legacy single-unit column the workflow still reads
+    order_limits: orderLimits,                                              // per-unit min/max — the matcher reads this first
+    minimum_order_qty: orderLimits.length ? orderLimits[0].min : null,      // legacy columns kept in sync (first entry)
+    maximum_order_qty: orderLimits.length ? orderLimits[0].max : null,
+    order_units: orderLimits.map(x => x.unit),
+    order_unit: orderLimits.length ? orderLimits[0].unit : null,
     category_keys: [...sel.cats],
     type_keys: [...sel.types],
     active: true,
@@ -659,9 +654,9 @@ async function save() {
   if (editingId) {
     const payload = { ...row }; delete payload.active;   // edit: leave active as-is (use the toggle to change it)
     let { error } = await sb.from('suppliers').update(payload).eq('id', editingId);
-    if (error && /order_qty|order_unit|whatsapp|contact_channel|budget_currency|could not find|column/i.test(error.message || '')) {
+    if (error && /order_qty|order_unit|order_limits|whatsapp|contact_channel|budget_currency|could not find|column/i.test(error.message || '')) {
       const base = { ...payload };
-      delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.whatsapp; delete base.contact_channel; delete base.budget_currency;
+      delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.order_limits; delete base.whatsapp; delete base.contact_channel; delete base.budget_currency;
       ({ error } = await sb.from('suppliers').update(base).eq('id', editingId));
     }
     $('save').disabled = false;
@@ -679,9 +674,9 @@ async function save() {
   }
 
   let { error } = await sb.from('suppliers').insert(row);
-  if (error && /order_qty|order_unit|whatsapp|contact_channel|budget_currency|could not find|column/i.test(error.message || '')) {
+  if (error && /order_qty|order_unit|order_limits|whatsapp|contact_channel|budget_currency|could not find|column/i.test(error.message || '')) {
     const base = { ...row };
-    delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.whatsapp; delete base.contact_channel; delete base.budget_currency;
+    delete base.minimum_order_qty; delete base.maximum_order_qty; delete base.order_unit; delete base.order_units; delete base.order_limits; delete base.whatsapp; delete base.contact_channel; delete base.budget_currency;
     ({ error } = await sb.from('suppliers').insert(base));
   }
   $('save').disabled = false;
@@ -697,10 +692,8 @@ function resetForm() {
   $('hasBmax').checked = false; setBudget('bmax');
   $('hasBudget').checked = false; setBudgetEnabled(false);
   $('budgetCurrency').selectedIndex = 0;
-  $('hasQmin').checked = false; setBudget('qmin');
-  $('hasQmax').checked = false; setBudget('qmax');
   $('wa').value = ''; setChannel('email');
-  sel.units.clear(); renderUnitChips();
+  olClear();
   $('hasOrder').checked = false; setOrderEnabled(false);
   $('emails').innerHTML = ''; repeatRow($('emails'), 'email', 'sales@company.com');
   $('phones').innerHTML = ''; repeatRow($('phones'), 'text', '+7 ...');
@@ -1264,11 +1257,13 @@ function editSupplier(s) {
   $('hasBudget').checked = _budgetOn; setBudgetEnabled(_budgetOn);
   $('budgetCurrency').value = (s.budget_currency && [...$('budgetCurrency').options].some(o => o.value === s.budget_currency)) ? s.budget_currency : 'KZT';
   setNumToggle('bmin', s.minimum_budget); setNumToggle('bmax', s.maximum_budget);
-  const _units = (s.order_units && s.order_units.length) ? s.order_units : (s.order_unit ? [s.order_unit] : []);
-  const _orderOn = _units.length > 0 || s.minimum_order_qty != null || s.maximum_order_qty != null;
-  $('hasOrder').checked = _orderOn; setOrderEnabled(_orderOn);
-  sel.units.clear(); _units.forEach(u => sel.units.add(u)); renderUnitChips();
-  setNumToggle('qmin', s.minimum_order_qty); setNumToggle('qmax', s.maximum_order_qty);
+  let _limits = Array.isArray(s.order_limits) ? s.order_limits.filter(x => x && x.unit) : [];
+  if (!_limits.length && (s.minimum_order_qty != null || s.maximum_order_qty != null)) {   // legacy single min/max
+    const us = (s.order_units && s.order_units.length) ? s.order_units : (s.order_unit ? [s.order_unit] : ['метр']);
+    _limits = us.map(u => ({ unit: u, min: s.minimum_order_qty != null ? s.minimum_order_qty : null, max: s.maximum_order_qty != null ? s.maximum_order_qty : null }));
+  }
+  olClear(); _limits.forEach(x => olAddRow(x.unit, x.min, x.max));
+  $('hasOrder').checked = _limits.length > 0; setOrderEnabled(_limits.length > 0);
   sel.cats.clear();    (s.category_keys || []).forEach(k => sel.cats.add(k));
   sel.types.clear();   (s.type_keys || []).forEach(k => sel.types.add(k));
   sel.regions.clear(); (s.regions || []).forEach(k => sel.regions.add(k));
@@ -1308,11 +1303,9 @@ function closeEditModal() {
   $('hasBmax').onchange = () => setBudget('bmax');
   $('hasBudget').onchange = () => setBudgetEnabled($('hasBudget').checked);
   setBudgetEnabled(false);
-  $('hasQmin').onchange = () => setBudget('qmin');
-  $('hasQmax').onchange = () => setBudget('qmax');
   $('hasOrder').onchange = () => setOrderEnabled($('hasOrder').checked);
+  $('olAdd').onclick = () => olAddRow();
   setOrderEnabled(false);
-  renderUnitChips();
   document.querySelectorAll('#channelToggle .seg3-opt').forEach(o => { o.onclick = () => setChannel(o.dataset.ch); });
   setChannel('email');
   $('analyzeBtn').onclick = analyze;
