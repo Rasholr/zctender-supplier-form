@@ -73,6 +73,8 @@
   .anbtn { margin-top:14px; width:100%; padding:11px; font-size:14px; font-weight:bold; color:var(--green-dk); background:#fff; border:1.5px solid var(--green); border-radius:8px; cursor:pointer; }
   .anbtn:hover { background:#E6F2EA; }
   .anbtn:disabled { color:#9cc3ab; border-color:#9cc3ab; cursor:default; }
+  .coming-soon { opacity:.5; pointer-events:none; user-select:none; }
+  .soonbadge { background:#FAEEDA; color:#633806; font-size:13px; font-weight:bold; padding:10px 12px; border-radius:8px; margin:0 0 10px; }
   input:disabled, select:disabled { background:#f5f3ee; color:#a9a79f; cursor:not-allowed; }
   .addbtn:disabled { color:#a9a79f; cursor:not-allowed; }
   .twocol { display:flex; gap:12px; }
@@ -301,7 +303,7 @@
 
   <div id="tabReplies" style="display:none">
     <div id="repliesBox" style="display:none">
-      <div class="analyzer" style="margin:0 0 18px">
+      <div id="rmPanel" class="analyzer" style="margin:0 0 18px">
         <div class="ahead">Определить запрос по письму <span class="hint">вставьте ответ поставщика — найду ZC и тендер</span></div>
         <div class="anfield">Email отправителя</div>
         <input type="email" id="rmEmail" placeholder="sales@postavshik.kz (необязательно)">
@@ -979,6 +981,7 @@ async function assignReply(r, code, btn) {
 // ---- Manual matcher: paste text/PDF + sender + date -> which RFQ/tender is it ----
 const RM_FREE = new Set(['gmail.com','mail.ru','yandex.ru','yandex.kz','inbox.ru','bk.ru','list.ru','outlook.com','hotmail.com','icloud.com']);
 const RM_DAYS = 14;   // lookback window before the received date (suppliers can answer a week+ later)
+const RM_ENABLED = false;   // «Определить запрос по письму»: false = greyed out with a "скоро" notice; flip to true to re-enable
 
 function rmSupEmails(s) {
   const e = [];
@@ -1154,6 +1157,7 @@ function rmRenderResult(box, res, letters) {
 }
 
 async function runManualMatch() {
+  if (!RM_ENABLED) return;
   const sender = $('rmEmail').value.trim().toLowerCase();
   const dateStr = $('rmDate').value.trim();
   let text = $('rmText').value || '';
@@ -1353,6 +1357,14 @@ function closeEditModal() {
     rmSyncDateChips();
   };
   $('rmDate').value = rmLocalDateStr(0); rmSyncDateChips();   // default: today, chip highlighted
+  if (!RM_ENABLED) {
+    const panel = $('rmPanel');
+    panel.classList.add('coming-soon');
+    const badge = document.createElement('div');
+    badge.className = 'soonbadge';
+    badge.textContent = '«Определить запрос по письму» — скоро. Функция дорабатывается и будет включена позже.';
+    panel.parentNode.insertBefore(badge, panel);
+  }
   $('cancelEdit').onclick = (e) => { e.preventDefault(); closeEditModal(); };
   $('modalClose').onclick = closeEditModal;
   $('modalBackdrop').onclick = closeEditModal;
