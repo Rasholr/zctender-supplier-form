@@ -789,6 +789,7 @@ let allSuppliers = [];
 
 let currentTab = 'add';
 function showTab(name) {
+  if (name === 'replies' && !REPLIES_TAB_ENABLED) return;
   currentTab = name;
   document.querySelectorAll('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $('tabAdd').style.display     = name === 'add'     ? '' : 'none';
@@ -1003,6 +1004,7 @@ async function assignReply(r, code, btn) {
 const RM_FREE = new Set(['gmail.com','mail.ru','yandex.ru','yandex.kz','inbox.ru','bk.ru','list.ru','outlook.com','hotmail.com','icloud.com']);
 const RM_DAYS = 14;   // lookback window before the received date (suppliers can answer a week+ later)
 const RM_ENABLED = false;   // «Определить запрос по письму»: false = greyed out with a "скоро" notice; flip to true to re-enable
+const REPLIES_TAB_ENABLED = false;   // вкладка «Ответы»: false = скрыта полностью; flip to true to bring back
 
 function rmSupEmails(s) {
   const e = [];
@@ -1349,6 +1351,7 @@ function closeEditModal() {
   });
   $('save').onclick = save;
   document.querySelectorAll('#tabs .tab').forEach(t => { t.onclick = () => showTab(t.dataset.tab); });
+  if (!REPLIES_TAB_ENABLED) { const rt = document.querySelector('#tabs .tab[data-tab="replies"]'); if (rt) rt.style.display = 'none'; }
   $('liBtn').onclick = signIn;
   $('liPass').onkeydown = (e) => { if (e.key === 'Enter') signIn(); };
   $('logoutBtn').onclick = signOut;
