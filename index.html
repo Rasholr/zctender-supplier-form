@@ -315,11 +315,13 @@
 
       <div class="lblrow" style="margin-bottom:10px">
         <select id="rFilter" style="flex:1; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
-          <option value="all">Все ответы</option>
-          <option value="unmatched">Только несопоставленные</option>
+          <option value="sent">Отправленные запросы</option>
+          <option value="all">Ответы поставщиков</option>
+          <option value="unmatched">Ответы без привязки</option>
         </select>
         <button class="addbtn" id="rRefresh" style="font-weight:bold; margin-left:10px">Обновить</button>
       </div>
+      <input type="text" id="rSearch" placeholder="Поиск: ZC-код, email, товар…" style="margin-bottom:4px">
       <div class="smeta" style="margin:8px 0"><span id="rCount"></span></div>
       <div id="rlistWrap" class="slist"></div>
     </div>
@@ -924,11 +926,30 @@ function fmtDT(d) {
   return p(x.getDate()) + '.' + p(x.getMonth() + 1) + ' ' + p(x.getHours()) + ':' + p(x.getMinutes());
 }
 
+function sentCard(o) {
+  const div = document.createElement('div'); div.className = 'scard';
+  const product = String(o.subject || '').replace(/^Запрос\s+ZC\d+\s*—\s*/i, '') || '(без темы)';
+  div.innerHTML =
+    '<div class="snm"><span class="sbadge on" style="margin-left:0">' + esc(o.rfq_code || '—') + '</span> ' + esc(product) + '</div>'
+    + '<div class="smeta" style="margin-top:4px">→ ' + esc(o.supplier_email || '—') + ' · ' + fmtDT(o.created_at) + (o.reference_code ? ' · тендер ' + esc(o.reference_code) : '') + '</div>';
+  return div;
+}
+
 function renderReplies() {
-  const only = $('rFilter').value;
-  const list = allReplies.filter(r => only !== 'unmatched' || !r.rfq_code);
-  $('rCount').textContent = 'показано ' + list.length + ' из ' + allReplies.length;
+  const mode = $('rFilter').value;
+  const q = ($('rSearch').value || '').trim().toLowerCase();
   const wrap = $('rlistWrap'); wrap.innerHTML = '';
+  if (mode === 'sent') {
+    const list = outboundRefs.filter(o => !q ||
+      [o.rfq_code, o.supplier_email, o.subject, o.reference_code].filter(Boolean).join(' ').toLowerCase().includes(q));
+    $('rCount').textContent = 'отправлено: показано ' + list.length + ' из ' + outboundRefs.length + ' (последние)';
+    if (!list.length) { wrap.innerHTML = '<div class="smeta">Ничего не найдено.</div>'; return; }
+    for (const o of list) wrap.appendChild(sentCard(o));
+    return;
+  }
+  const list = allReplies.filter(r => (mode !== 'unmatched' || !r.rfq_code))
+    .filter(r => !q || [r.rfq_code, r.supplier_email, r.subject].filter(Boolean).join(' ').toLowerCase().includes(q));
+  $('rCount').textContent = 'показано ' + list.length + ' из ' + allReplies.length;
   if (!list.length) { wrap.innerHTML = '<div class="smeta">Пока нет ответов.</div>'; return; }
   for (const r of list) wrap.appendChild(replyCard(r));
 }
@@ -1329,6 +1350,7 @@ function closeEditModal() {
   $('sSearch').oninput = renderSuppliers;
   $('catFilter').onchange = renderSuppliers;
   $('rFilter').onchange = renderReplies;
+  $('rSearch').oninput = renderReplies;
   $('rRefresh').onclick = loadReplies;
   $('rmGo').onclick = runManualMatch;
   $('rmPdf').onchange = rmPdfSelUpd;
