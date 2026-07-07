@@ -926,11 +926,14 @@ function fmtDT(d) {
   return p(x.getDate()) + '.' + p(x.getMonth() + 1) + ' ' + p(x.getHours()) + ':' + p(x.getMinutes());
 }
 
+function mailruSearchLink(code, inner) {   // click a ZC code -> Mail.ru search: finds the sent copy + replies citing it
+  return '<a href="https://e.mail.ru/search/?q_query=' + encodeURIComponent(String(code)) + '" target="_blank" style="text-decoration:none">' + inner + '</a>';
+}
 function sentCard(o) {
   const div = document.createElement('div'); div.className = 'scard';
   const product = String(o.subject || '').replace(/^Запрос\s+ZC\d+\s*—\s*/i, '') || '(без темы)';
   div.innerHTML =
-    '<div class="snm"><span class="sbadge on" style="margin-left:0">' + esc(o.rfq_code || '—') + '</span> ' + esc(product) + '</div>'
+    '<div class="snm">' + mailruSearchLink(o.rfq_code, '<span class="sbadge on" style="margin-left:0; cursor:pointer" title="найти в Mail.ru">' + esc(o.rfq_code || '—') + ' ↗</span>') + ' ' + esc(product) + '</div>'
     + '<div class="smeta" style="margin-top:4px">→ ' + esc(o.supplier_email || '—') + ' · ' + fmtDT(o.created_at) + (o.reference_code ? ' · тендер ' + esc(o.reference_code) : '') + '</div>';
   return div;
 }
@@ -960,7 +963,9 @@ function replyCard(r) {
   const link = r.gmail_message_id ? ('https://mail.google.com/mail/?authuser=integran.sales@gmail.com#all/' + encodeURIComponent(r.gmail_message_id)) : '';
   div.innerHTML =
     '<div class="snm">' + esc(r.supplier_email || '—')
-      + '<span class="sbadge ' + (matched ? 'on' : 'off') + '">' + (matched ? esc(r.rfq_code) : 'не сопоставлено') + '</span></div>'
+      + (matched
+        ? mailruSearchLink(r.rfq_code, '<span class="sbadge on" style="cursor:pointer" title="найти в Mail.ru">' + esc(r.rfq_code) + ' ↗</span>')
+        : '<span class="sbadge off">не сопоставлено</span>') + '</div>'
     + '<div class="smeta">' + esc(r.subject || '(без темы)') + '</div>'
     + '<div class="smeta">' + fmtDT(r.created_at) + (r.attachment_count ? ' · вложений: ' + r.attachment_count : '')
       + (link ? ' · <a href="' + link + '" target="_blank" style="color:#185FA5">открыть письмо ↗</a>' : '') + '</div>';
