@@ -335,6 +335,7 @@
           <option value="attention">Требуют внимания</option>
           <option value="all">Все статусы</option>
           <option value="offers">КП получены</option>
+          <option value="archive">Архив (срок прошёл)</option>
         </select>
         <button class="addbtn" id="tRefresh" style="font-weight:bold; margin-left:10px">Обновить</button>
       </div>
@@ -1389,12 +1390,17 @@ function renderTenders() {
     nc.appendChild(h);
     for (const r of unmatchedInbound) nc.appendChild(replyCard(r));
   }
-  // tracking rows
+  // tracking rows (expired tenders live only in «Архив»)
+  const p2 = n => String(n).padStart(2, '0');
+  const d0 = new Date();
+  const todayIso = d0.getFullYear() + '-' + p2(d0.getMonth() + 1) + '-' + p2(d0.getDate());
   let rows = allTracking.filter(t => {
+    const lot = lotInfo[t.reference_code] || {};
+    const expired = !!(lot.closing_date && String(lot.closing_date).slice(0, 10) < todayIso);
+    if (mode === 'archive' ? !expired : expired) return false;
     if (mode === 'attention' && !ATTENTION.has(t.status)) return false;
     if (mode === 'offers' && t.status !== 'accepted_offer') return false;
     if (!q) return true;
-    const lot = lotInfo[t.reference_code] || {};
     return [t.rfq_code, t.supplier_email, t.supplier_name, t.reference_code, lot.product_name].filter(Boolean).join(' ').toLowerCase().includes(q);
   });
   $('tCount').textContent = 'показано ' + rows.length + ' из ' + allTracking.length + ' запросов';
