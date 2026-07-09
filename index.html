@@ -1338,10 +1338,48 @@ async function loadTenders() {
   lotInfo = {};
   const refs = [...new Set(allTracking.map(t => t.reference_code).filter(Boolean))].slice(0, 200);
   if (refs.length) {
-    const lots = await sb.from('tender_lots').select('reference_code,product_name,closing_date,amount').in('reference_code', refs);
+    const lots = await sb.from('tender_lots').select('reference_code,product_name,closing_date,amount,quantity,unit,key_specifications,standards,pdf_url,pdf_filename,source_type,announcement_number,lot_number').in('reference_code', refs);
     if (!lots.error) for (const l of (lots.data || [])) lotInfo[l.reference_code] = l;
   }
   renderTenders();
+}
+
+function fmtMoney(n) {
+  if (n == null || n === '' || !isFinite(Number(n))) return null;
+  return String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₸';
+}
+function platformOf(st) {
+  const s = String(st || '');
+  if (s.includes('goszakup')) return 'goszakup.gov.kz';
+  if (s.includes('zakup_sk')) return 'zakup.sk.kz';
+  return s || '—';
+}
+function tenderDetailsHtml(lot) {
+  const rows = [];
+  const money = fmtMoney(lot.amount);
+  const per = (lot.amount != null && Number(lot.quantity) > 0) ? fmtMoney(Number(lot.amount) / Number(lot.quantity)) : null;
+  if (money) rows.push(['Бюджет', '<b>' + money + '</b>' + (per ? ' <span style="color:var(--mut)">(' + per + ' / ' + esc(lot.unit || 'ед') + ')</span>' : '')]);
+  if (lot.quantity) rows.push(['Количество', esc(lot.quantity + ' ' + (lot.unit || ''))]);
+  if (lot.closing_date) {
+    const d = String(lot.closing_date).slice(0, 10);
+    const days = Math.round((Date.parse(d) - Date.now()) / 86400000);
+    rows.push(['Срок', esc(d.split('-').reverse().join('.')) + (days >= 0
+      ? ' <span style="color:var(--mut)">(осталось ' + days + ' дн.)</span>'
+      : ' <span style="color:#791F1F">(закрыт)</span>')]);
+  }
+  rows.push(['Платформа', esc(platformOf(lot.source_type))
+    + (lot.announcement_number ? ' · объявление ' + esc(lot.announcement_number) : '')
+    + (lot.lot_number ? ' · лот ' + esc(lot.lot_number) : '')]);
+  if (lot.pdf_url) rows.push(['Документы', '<a href="' + esc(lot.pdf_url) + '" target="_blank" style="color:#185FA5">ТЗ (PDF) ↗</a>']);
+  let html = '<table style="border-collapse:collapse">'
+    + rows.map(([k, v]) => '<tr><td style="color:var(--mut); padding:2px 14px 2px 0; vertical-align:top; white-space:nowrap">' + k + '</td><td style="padding:2px 0">' + v + '</td></tr>').join('')
+    + '</table>';
+  const specs = Array.isArray(lot.key_specifications) ? lot.key_specifications : [];
+  if (specs.length) html += '<div style="margin-top:8px; color:var(--mut)">Характеристики:</div>'
+    + specs.slice(0, 25).map(s => '<div style="padding:1px 0">• ' + esc(s) + '</div>').join('');
+  const stds = Array.isArray(lot.standards) ? lot.standards : [];
+  if (stds.length) html += '<div style="margin-top:6px; color:var(--mut)">Стандарты: <span style="color:#2C2C2A">' + esc(stds.join(', ')) + '</span></div>';
+  return html;
 }
 
 function stChip(status) {
@@ -1412,8 +1450,20 @@ function renderTenders() {
   for (const [ref, list] of groups) {
     const lot = lotInfo[ref] || {};
     const card = document.createElement('div'); card.className = 'scard';
-    card.innerHTML = '<div class="snm">' + esc(lot.product_name || ref) + '</div>'
+    const head = document.createElement('div');
+    head.style.cursor = 'pointer';
+    head.title = 'нажмите — подробности тендера';
+    head.innerHTML = '<div class="snm"><span class="tchev" style="color:var(--mut); font-size:12px">▸</span> ' + esc(lot.product_name || ref) + '</div>'
       + '<div class="smeta">' + esc(ref) + (lot.closing_date ? ' · до ' + esc(String(lot.closing_date).slice(0, 10)) : '') + ' · поставщиков: ' + list.length + '</div>';
+    const det = document.createElement('div');
+    det.style.cssText = 'display:none; margin:8px 0 4px; padding:10px 12px; background:#F7F6F2; border-radius:8px; font-size:12.5px';
+    det.innerHTML = tenderDetailsHtml(lot);
+    head.onclick = () => {
+      const open = det.style.display !== 'none';
+      det.style.display = open ? 'none' : 'block';
+      head.querySelector('.tchev').textContent = open ? '▸' : '▾';
+    };
+    card.append(head, det);
     for (const t of list) card.appendChild(trackRow(t));
     wrap.appendChild(card);
   }
