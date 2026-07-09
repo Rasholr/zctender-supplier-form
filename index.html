@@ -114,6 +114,11 @@
   .sbadge.on { background:#E1F5EE; color:#085041; }
   .sbadge.off { background:#f0eee7; color:#8a877e; }
   .catgrp { font-size:11px; font-weight:bold; color:var(--green-dk); text-transform:uppercase; letter-spacing:.3px; margin:14px 0 4px; border-bottom:1px solid var(--bd); padding-bottom:4px; }
+  .thead { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; }
+  .chev { width:28px; height:28px; border:1px solid var(--bd); border-radius:50%; display:flex; align-items:center; justify-content:center;
+    color:var(--mut); font-size:13px; flex:0 0 auto; transition:transform .18s ease, background .18s, border-color .18s; user-select:none; }
+  .chev.open { transform:rotate(180deg); background:#E6F2EA; border-color:var(--green); color:var(--green-dk); }
+  .thead:hover .chev { border-color:var(--green); color:var(--green-dk); }
   #modalBackdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:150; display:none; }
   body.modal-open { overflow:hidden; }
   body.modal-open #modalBackdrop { display:block; }
@@ -1451,20 +1456,25 @@ function renderTenders() {
     const lot = lotInfo[ref] || {};
     const card = document.createElement('div'); card.className = 'scard';
     const head = document.createElement('div');
-    head.style.cursor = 'pointer';
-    head.title = 'нажмите — подробности тендера';
-    head.innerHTML = '<div class="snm"><span class="tchev" style="color:var(--mut); font-size:12px">▸</span> ' + esc(lot.product_name || ref) + '</div>'
-      + '<div class="smeta">' + esc(ref) + (lot.closing_date ? ' · до ' + esc(String(lot.closing_date).slice(0, 10)) : '') + ' · поставщиков: ' + list.length + '</div>';
+    head.className = 'thead';
+    head.title = 'нажмите, чтобы раскрыть';
+    head.innerHTML = '<div style="flex:1; min-width:0">'
+      + '<div class="snm">' + esc(lot.product_name || ref) + '</div>'
+      + '<div class="smeta">' + esc(ref) + (lot.closing_date ? ' · до ' + esc(String(lot.closing_date).slice(0, 10)) : '') + ' · поставщиков: ' + list.length + '</div>'
+      + '</div><div class="chev">▾</div>';
+    const body = document.createElement('div');
+    body.style.display = 'none';
+    for (const t of list) body.appendChild(trackRow(t));           // emails/suppliers on top
     const det = document.createElement('div');
-    det.style.cssText = 'display:none; margin:8px 0 4px; padding:10px 12px; background:#F7F6F2; border-radius:8px; font-size:12.5px';
+    det.style.cssText = 'margin:10px 0 2px; padding:10px 12px; background:#F7F6F2; border-radius:8px; font-size:12.5px';
     det.innerHTML = tenderDetailsHtml(lot);
+    body.appendChild(det);                                          // tender info below
     head.onclick = () => {
-      const open = det.style.display !== 'none';
-      det.style.display = open ? 'none' : 'block';
-      head.querySelector('.tchev').textContent = open ? '▸' : '▾';
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      head.querySelector('.chev').classList.toggle('open', !open);
     };
-    card.append(head, det);
-    for (const t of list) card.appendChild(trackRow(t));
+    card.append(head, body);
     wrap.appendChild(card);
   }
 }
