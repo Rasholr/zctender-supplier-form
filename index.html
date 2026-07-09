@@ -135,6 +135,7 @@
   <div id="tabs" class="tabs">
     <button type="button" class="tab active" data-tab="add">Добавить</button>
     <button type="button" class="tab" data-tab="list">Список / изменить</button>
+    <button type="button" class="tab" data-tab="tenders">Тендеры</button>
     <button type="button" class="tab" data-tab="replies">Ответы</button>
   </div>
 
@@ -324,6 +325,23 @@
       <input type="text" id="rSearch" placeholder="Поиск: ZC-код, email, товар…" style="margin-bottom:4px">
       <div class="smeta" style="margin:8px 0"><span id="rCount"></span></div>
       <div id="rlistWrap" class="slist"></div>
+    </div>
+  </div>
+
+  <div id="tabTenders" style="display:none">
+    <div id="tendersBox" style="display:none">
+      <div class="lblrow" style="margin-bottom:10px">
+        <select id="tFilter" style="flex:1; padding:8px 10px; font-size:14px; border:1px solid var(--bd); border-radius:8px; font-family:inherit; background:#fff">
+          <option value="attention">Требуют внимания</option>
+          <option value="all">Все статусы</option>
+          <option value="offers">КП получены</option>
+        </select>
+        <button class="addbtn" id="tRefresh" style="font-weight:bold; margin-left:10px">Обновить</button>
+      </div>
+      <input type="text" id="tSearch" placeholder="Поиск: тендер, поставщик, ZC…" style="margin-bottom:4px">
+      <div class="smeta" style="margin:8px 0"><span id="tCount"></span></div>
+      <div id="noCtxWrap"></div>
+      <div id="tlistWrap" class="slist"></div>
     </div>
   </div>
 
@@ -795,6 +813,7 @@ function showTab(name) {
   $('tabAdd').style.display     = name === 'add'     ? '' : 'none';
   $('tabList').style.display    = name === 'list'    ? '' : 'none';
   $('tabReplies').style.display = name === 'replies' ? '' : 'none';
+  $('tabTenders').style.display = name === 'tenders' ? '' : 'none';
   if (name === 'add') $('loginBox').style.display = 'none';
   else refreshAuthUI();
 }
@@ -803,12 +822,14 @@ async function refreshAuthUI() {
   if (!sb) return;
   const { data } = await sb.auth.getSession();
   const authed = !!(data && data.session);
-  const gated = currentTab === 'list' || currentTab === 'replies';
+  const gated = currentTab === 'list' || currentTab === 'replies' || currentTab === 'tenders';
   $('loginBox').style.display   = (gated && !authed) ? '' : 'none';
   $('listBox').style.display    = (authed && currentTab === 'list') ? '' : 'none';
   $('repliesBox').style.display = (authed && currentTab === 'replies') ? '' : 'none';
+  $('tendersBox').style.display = (authed && currentTab === 'tenders') ? '' : 'none';
   if (authed && currentTab === 'list') { $('whoami').textContent = data.session.user.email; loadSuppliers(); }
   if (authed && currentTab === 'replies') loadReplies();
+  if (authed && currentTab === 'tenders') loadTenders();
 }
 
 async function signIn() {
@@ -996,8 +1017,18 @@ async function assignReply(r, code, btn) {
   btn.disabled = false;
   if (error) return showMsg('Ошибка привязки: ' + error.message, false);
   r.rfq_code = code; r.reference_code = (ref && ref.reference_code) || null;
+  // reflect the attach in the state machine: the reply exists, a human is on it
+  const now = new Date().toISOString();
+  await sb.from('rfq_tracking').update({ status: 'talking', last_reply_at: now, updated_at: now }).eq('rfq_code', code);
   showMsg('Ответ привязан к ' + code + '.', true);
-  renderReplies();
+  if (currentTab === 'tenders') {
+    unmatchedInbound = unmatchedInbound.filter(x => x.id !== r.id);
+    const t = allTracking.find(x => x.rfq_code === code);
+    if (t) { t.status = 'talking'; t.last_reply_at = now; }
+    renderTenders();
+  } else {
+    renderReplies();
+  }
 }
 
 // ---- Manual matcher: paste text/PDF + sender + date -> which RFQ/tender is it ----
@@ -1258,6 +1289,130 @@ async function runManualMatch() {
   $('rmGo').disabled = false;
 }
 
+// ================= Тендеры dashboard (Phase 2: rfq_tracking state machine) =================
+const ST_LABEL = {
+  sent_waiting: 'Отправлено — ждём ответа',
+  accepted_offer: 'КП получено',
+  rejected: 'Отказ',
+  talking: 'Переговоры — нужен человек',
+  followup_sent: 'Напоминание отправлено',
+  call_needed: 'Нужен звонок',
+  no_context: 'Без привязки',
+  closed: 'Закрыто',
+};
+const ST_COLOR = {   // [bg, fg]
+  sent_waiting: ['#EAF1F8', '#1D4E7A'],
+  accepted_offer: ['#E1F5EE', '#085041'],
+  rejected: ['#FCEBEB', '#791F1F'],
+  talking: ['#FAEEDA', '#633806'],
+  followup_sent: ['#F0EEE7', '#5F5E5A'],
+  call_needed: ['#FAE3D0', '#7A3E06'],
+  closed: ['#F0EEE7', '#8A877E'],
+};
+const ST_SETTABLE = [
+  ['accepted_offer', 'КП получено'],
+  ['rejected', 'Отказ'],
+  ['talking', 'Ещё общаемся'],
+  ['call_needed', 'Позвонить позже'],
+  ['closed', 'Закрыто'],
+];
+const ATTENTION = new Set(['talking', 'call_needed']);
+
+let allTracking = [], lotInfo = {}, unmatchedInbound = [];
+
+async function loadTenders() {
+  $('tlistWrap').innerHTML = '<div class="smeta">Загрузка…</div>';
+  $('noCtxWrap').innerHTML = '';
+  const [trk, inb, outb] = await Promise.all([
+    sb.from('rfq_tracking').select('*').order('updated_at', { ascending: false }).limit(1000),
+    sb.from('supplier_emails').select('*').eq('direction', 'inbound').is('rfq_code', null).order('created_at', { ascending: false }).limit(50),
+    sb.from('supplier_emails').select('rfq_code,reference_code,subject,supplier_email,created_at').eq('direction', 'outbound').order('created_at', { ascending: false }).limit(200),
+  ]);
+  if (trk.error) { $('tlistWrap').innerHTML = '<div class="review">Ошибка: ' + esc(trk.error.message) + ' — выполнен ли SQL для rfq_tracking?</div>'; return; }
+  allTracking = trk.data || [];
+  unmatchedInbound = inb.data || [];
+  const seen = new Set();
+  outboundRefs = (outb.data || []).filter(o => o.rfq_code && !seen.has(o.rfq_code) && seen.add(o.rfq_code));   // feeds the Привязать dropdowns
+  // tender details for headers
+  lotInfo = {};
+  const refs = [...new Set(allTracking.map(t => t.reference_code).filter(Boolean))].slice(0, 200);
+  if (refs.length) {
+    const lots = await sb.from('tender_lots').select('reference_code,product_name,closing_date,amount').in('reference_code', refs);
+    if (!lots.error) for (const l of (lots.data || [])) lotInfo[l.reference_code] = l;
+  }
+  renderTenders();
+}
+
+function stChip(status) {
+  const c = ST_COLOR[status] || ['#F0EEE7', '#5F5E5A'];
+  return '<span class="sbadge" style="margin-left:0;background:' + c[0] + ';color:' + c[1] + '">' + esc(ST_LABEL[status] || status) + '</span>';
+}
+
+function trackRow(t) {
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:7px 0; border-top:1px dashed var(--bd)';
+  const info = document.createElement('div');
+  info.style.cssText = 'flex:1 1 240px; min-width:200px';
+  info.innerHTML = '<div style="font-size:12.5px">' + mailruSearchLink(t.rfq_code, '<b style="font-family:monospace;color:#185FA5;cursor:pointer" title="найти в Mail.ru">' + esc(t.rfq_code) + ' ↗</b>')
+    + ' · ' + esc(t.supplier_name || t.supplier_email || '—') + '</div>'
+    + '<div class="smeta">' + stChip(t.status) + (t.last_reply_at ? ' · ответ ' + fmtDT(t.last_reply_at) : '') + '</div>'
+    + (t.worker_note ? '<div class="smeta" style="font-style:italic">' + esc(String(t.worker_note).slice(0, 120)) + '</div>' : '');
+  const selEl = document.createElement('select');
+  selEl.style.cssText = 'flex:0 1 170px; padding:6px 8px; font-size:12.5px; border:1px solid var(--bd); border-radius:7px; background:#fff';
+  selEl.innerHTML = '<option value="">— статус —</option>' + ST_SETTABLE.map(([v, l]) => '<option value="' + v + '">' + l + '</option>').join('');
+  const btn = document.createElement('button'); btn.className = 'sbtn edit'; btn.textContent = 'OK';
+  btn.onclick = () => setTrackStatus(t, selEl.value, btn);
+  div.append(info, selEl, btn);
+  return div;
+}
+
+async function setTrackStatus(t, status, btn) {
+  if (!status) return showMsg('Выберите статус.', false);
+  btn.disabled = true;
+  const now = new Date().toISOString();
+  const { error } = await sb.from('rfq_tracking').update({ status, updated_at: now }).eq('rfq_code', t.rfq_code);
+  btn.disabled = false;
+  if (error) return showMsg('Ошибка: ' + error.message, false);
+  t.status = status; t.updated_at = now;
+  showMsg(t.rfq_code + ' → ' + (ST_LABEL[status] || status), true);
+  renderTenders();
+}
+
+function renderTenders() {
+  const mode = $('tFilter').value;
+  const q = ($('tSearch').value || '').trim().toLowerCase();
+  // Без привязки: unmatched inbound emails with the Привязать control (reuses replyCard)
+  const nc = $('noCtxWrap'); nc.innerHTML = '';
+  if (unmatchedInbound.length && mode !== 'offers') {
+    const h = document.createElement('div'); h.className = 'catgrp';
+    h.textContent = 'Без привязки — нужен человек (' + unmatchedInbound.length + ')';
+    nc.appendChild(h);
+    for (const r of unmatchedInbound) nc.appendChild(replyCard(r));
+  }
+  // tracking rows
+  let rows = allTracking.filter(t => {
+    if (mode === 'attention' && !ATTENTION.has(t.status)) return false;
+    if (mode === 'offers' && t.status !== 'accepted_offer') return false;
+    if (!q) return true;
+    const lot = lotInfo[t.reference_code] || {};
+    return [t.rfq_code, t.supplier_email, t.supplier_name, t.reference_code, lot.product_name].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+  $('tCount').textContent = 'показано ' + rows.length + ' из ' + allTracking.length + ' запросов';
+  const wrap = $('tlistWrap'); wrap.innerHTML = '';
+  if (!rows.length) { wrap.innerHTML = '<div class="smeta">' + (mode === 'attention' ? 'Внимания ничего не требует.' : 'Пока пусто.') + '</div>'; return; }
+  // group by tender
+  const groups = new Map();
+  for (const t of rows) { const k = t.reference_code || '(без тендера)'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+  for (const [ref, list] of groups) {
+    const lot = lotInfo[ref] || {};
+    const card = document.createElement('div'); card.className = 'scard';
+    card.innerHTML = '<div class="snm">' + esc(lot.product_name || ref) + '</div>'
+      + '<div class="smeta">' + esc(ref) + (lot.closing_date ? ' · до ' + esc(String(lot.closing_date).slice(0, 10)) : '') + ' · поставщиков: ' + list.length + '</div>';
+    for (const t of list) card.appendChild(trackRow(t));
+    wrap.appendChild(card);
+  }
+}
+
 function rowWithValue(container, type, placeholder, value) {
   repeatRow(container, type, placeholder);
   const inputs = container.querySelectorAll('input');
@@ -1360,6 +1515,9 @@ function closeEditModal() {
   $('rFilter').onchange = renderReplies;
   $('rSearch').oninput = renderReplies;
   $('rRefresh').onclick = loadReplies;
+  $('tFilter').onchange = renderTenders;
+  $('tSearch').oninput = renderTenders;
+  $('tRefresh').onclick = loadTenders;
   $('rmGo').onclick = runManualMatch;
   $('rmPdf').onchange = rmPdfSelUpd;
   const rmDropEl = $('rmDrop');
